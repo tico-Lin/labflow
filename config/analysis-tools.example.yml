@@ -1,0 +1,85 @@
+# Phase A/B/C analysis tool examples.
+# These payloads map to POST /analysis/run.
+
+examples:
+  mendeleev_props:
+    tool_id: "mendeleev_props"
+    file_id: 123
+    parameters:
+      element: "Fe"
+      dopant: "Mn"
+      radius_type: "atomic_radius"
+    store_output: true
+
+  pymatgen_cif:
+    tool_id: "pymatgen_cif"
+    file_id: 123
+    parameters:
+      symprec: 0.1
+    store_output: true
+
+  matminer_features:
+    tool_id: "matminer_features"
+    file_id: 123
+    parameters:
+      composition: "LiFePO4"
+      feature_set: "magpie"
+      base_element: "Fe"
+      dopant_element: "Mn"
+      radius_type: "atomic_radius"
+    store_output: true
+
+  hdf5_storage:
+    tool_id: "hdf5_storage"
+    file_id: 123
+    parameters:
+      dataset_name: "eis_sample"
+      kind: "curve"
+      x_col: "x"
+      y_col: "y"
+      metadata:
+        instrument: "EIS-200"
+        operator: "lab"
+    store_output: true
+
+  docx_report:
+    tool_id: "docx_report"
+    file_id: 123
+    parameters:
+      title: "Phase B Report"
+      summary: "Auto-generated report with plot and table."
+      plot_x_col: "x"
+      plot_y_col: "y"
+      report_name: "phase-b-report"
+      table_rows:
+        - sample: "A"
+          value: 1.23
+        - sample: "B"
+          value: 2.34
+    store_output: true
+
+  xrd_match:
+    tool_id: "xrd_match"
+    file_id: 123
+    parameters:
+      reference_cif_path: "data/raw/reference.cif"
+      two_theta_col: "2theta"
+      intensity_col: "intensity"
+      peak_count: 20
+      tolerance: 0.2
+    store_output: true
+
+  mp_api:
+    tool_id: "xrd_match"
+    file_id: 123
+    parameters:
+      mp_id: "mp-149"
+      mp_api_key: "${MP_API_KEY}"
+      two_theta_col: "2theta"
+      intensity_col: "intensity"
+    store_output: true
+
+env:
+  HDF5_PATH: "data/managed/hdf5"
+  REPORT_PATH: "data/outputs/reports"
+  MP_API_KEY: "<materials-project-api-key>"

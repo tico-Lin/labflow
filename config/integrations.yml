@@ -1,0 +1,159 @@
+# LabFlow Integrations Configuration
+# Adjust paths and versions to match your local installations.
+
+integrations:
+  fiji:
+    enabled: false
+    mode: bundled
+    path: "tools/Fiji"
+    min_version: ""
+    license: "GPL-2.0"
+    cite: ""
+
+  gsas2:
+    enabled: false
+    mode: bundled
+    path: "tools/GSAS-II/GSASII"
+    min_version: ""
+    license: "CCP14 (BSD-like)"
+    cite: "Toby & Von Dreele (2013)"
+
+  pyfai:
+    enabled: false
+    mode: bundled
+    path: "tools/pyFAI/src"
+    min_version: ""
+    license: "MIT"
+    cite: "Kieffer et al. (2013)"
+
+  larch:
+    enabled: false
+    mode: bundled
+    path: "tools/larch/larch"
+    min_version: ""
+    license: "BSD"
+    cite: "Newville (2013)"
+
+  lmfit:
+    enabled: false
+    mode: bundled
+    path: "tools/lmfit/lmfit"
+    min_version: ""
+    license: "BSD"
+    cite: "Newville et al. (2014)"
+
+  hyperspy:
+    enabled: false
+    mode: bundled
+    path: "tools/hyperspy/hyperspy"
+    min_version: ""
+    license: "GPL-3.0"
+    cite: "de la Pena et al."
+
+  scikit_image:
+    enabled: false
+    mode: bundled
+    path: "tools/scikit-image/src"
+    min_version: ""
+    license: "BSD"
+    cite: "van der Walt et al. (2014)"
+
+  atomap:
+    enabled: false
+    mode: bundled
+    path: "tools/atomap/atomap"
+    min_version: ""
+    license: "GPL-3.0"
+    cite: "Nord et al. (2017)"
+
+  impedance_py:
+    enabled: false
+    mode: bundled
+    path: "tools/impedance.py/impedance"
+    min_version: ""
+    license: "MIT"
+    cite: "Murbach et al. (2020)"
+
+  ixdat:
+    enabled: false
+    mode: bundled
+    path: "tools/ixdat/src"
+    min_version: ""
+    license: "MIT"
+    cite: "ixdat GitHub repo"
+
+  pyechem:
+    enabled: false
+    mode: bundled
+    path: "tools/pyechem/pyechem"
+    min_version: ""
+    license: "MIT"
+    cite: ""
+
+  pymatgen:
+    enabled: false
+    mode: bundled
+    path: "tools/pymatgen/pymatgen"
+    min_version: ""
+    license: "MIT"
+    cite: ""
+
+  mendeleev:
+    enabled: false
+    mode: bundled
+    path: "tools/mendeleev/mendeleev"
+    min_version: ""
+    license: "MIT"
+    cite: ""
+
+  h5py:
+    enabled: false
+    mode: bundled
+    path: "tools/h5py/h5py"
+    min_version: ""
+    license: "BSD"
+    cite: ""
+
+  python_docx:
+    enabled: false
+    mode: bundled
+    path: "tools/python-docx/docx"
+    min_version: ""
+    license: "MIT"
+    cite: ""
+
+  scienceplots:
+    enabled: false
+    mode: bundled
+    path: "tools/SciencePlots/scienceplots"
+    min_version: ""
+    license: "MIT"
+    cite: ""
+
+  matminer:
+    enabled: false
+    mode: bundled
+    path: "tools/matminer/matminer"
+    min_version: ""
+    license: "MIT"
+    cite: ""
+
+  mp_api:
+    enabled: false
+    mode: bundled
+    path: "tools/materialsproject-api/mp_api"
+    min_version: ""
+    license: "MIT"
+    cite: ""
+
+  cod:
+    enabled: false
+    mode: remote
+    path: "https://www.crystallography.net/cod/"
+    min_version: ""
+    license: "See project"
+    cite: ""
+    min_version: ""
+    license: "MIT"
+    cite: ""
+
