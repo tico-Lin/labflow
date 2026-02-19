@@ -1,0 +1,28 @@
+LabFlow - GNU General Public License v3
+
+Copyright (c) 2026 LabFlow contributors
+
+LabFlow is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+LabFlow is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with LabFlow. If not, see <https://www.gnu.org/licenses/>.
+
+---
+
+RATIONALE FOR GPL v3:
+This project integrates third-party open source software under GPL v2 and GPL v3
+licenses (Fiji/ImageJ, HyperSpy, Atomap), which requires this project to be
+licensed under a GPL-compatible license. GPL v3 is chosen to ensure compatibility
+with all bundled components and their obligations.
+
+See THIRD_PARTY_NOTICES.md for complete attribution and licensing details.
+
+For the full text of GPL v3, visit: https://www.gnu.org/licenses/gpl-3.0.html
