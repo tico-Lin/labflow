@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # LabFlow API 服務
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: labflow-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./labflow.db
+      - STORAGE_PATH=/app/data/managed
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+      - REFRESH_TOKEN_EXPIRE_DAYS=7
+    volumes:
+      - ./data:/app/data
+      - ./labflow.db:/app/labflow.db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - labflow-network
+    depends_on:
+      - db
+
+  # SQLite 數據庫（簡化版本，生產環境建議使用 PostgreSQL）
+  # 注：SQLite 在容器化環境中的文件持久化需要妥善配置
+  db:
+    image: alpine:latest
+    container_name: labflow-db
+    volumes:
+      - ./labflow.db:/data/labflow.db
+    networks:
+      - labflow-network
+    command: sleep infinity
+
+  # Redis 快取（可選）
+  redis:
+    image: redis:7-alpine
+    container_name: labflow-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - labflow-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  labflow-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local

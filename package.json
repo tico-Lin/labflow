@@ -1,0 +1,8 @@
+{
+  "name": "labflow",
+  "version": "1.0.0",
+  "description": "Labflow project",
+  "devDependencies": {
+    "prettier": "^3.8.0"
+  }
+}

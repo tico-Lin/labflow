@@ -1,0 +1,47 @@
+# Auto detect text files and normalize line endings to LF
+* text=auto
+
+# Python files
+*.py text eol=lf
+*.pyi text eol=lf
+*.pyx text eol=lf
+
+# Documentation
+*.md text eol=lf
+*.txt text eol=lf
+*.rst text eol=lf
+
+# Shell scripts
+*.sh text eol=lf
+*.bash text eol=lf
+
+# JSON/YAML
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+
+# Config files
+*.ini text eol=lf
+*.cfg text eol=lf
+*.toml text eol=lf
+
+# PowerShell
+*.ps1 text eol=crlf
+*.ps2 text eol=crlf
+
+# Binary files
+*.pyc binary
+*.pyo binary
+*.egg binary
+*.so binary
+*.dylib binary
+*.dll binary
+*.exe binary
+*.db binary
+*.sqlite binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.zip binary
+*.tar binary
