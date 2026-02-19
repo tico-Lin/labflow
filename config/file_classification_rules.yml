@@ -1,0 +1,317 @@
+# ============================================================================
+# 檔案自動分類規則配置
+# ============================================================================
+# 用途：定義檔案命名規則與元數據提取邏輯
+# 版本：v1.0
+# 創建日期：2026-02-17
+# ============================================================================
+
+# 全局設置
+global:
+  # 默認置信度閾值（低於此值視為未分類）
+  confidence_threshold: 0.5
+  # 是否啟用自動標籤建議
+  auto_tag_enabled: true
+  # 最大建議標籤數量
+  max_suggested_tags: 10
+
+# 檔案類型規則
+rules:
+  # XRD (X-ray Diffraction) 衍射數據
+  xrd:
+    # 命名模式（支援正則表達式）
+    patterns:
+      - pattern: '(?P<sample>\w+)_XRD_(?P<date>\d{8})'
+        description: '標準格式: Sample_XRD_YYYYMMDD'
+        confidence: 0.95
+      - pattern: 'XRD[_-](?P<sample>\w+)[_-](?P<date>\d{8})'
+        description: 'XRD開頭格式'
+        confidence: 0.90
+      - pattern: '(?P<sample>\w+)[_-](?P<date>\d{8})[_-]*XRD'
+        description: 'XRD結尾格式'
+        confidence: 0.85
+
+    # 檔案擴展名
+    extensions:
+      - .xy
+      - .txt
+      - .xrdml
+      - .raw
+      - .brml
+      - .cif
+
+    # 元數據提取規則
+    metadata_extraction:
+      - field: sample_id
+        source: group
+        group_name: sample
+        required: false
+      - field: test_date
+        source: group
+        group_name: date
+        format: '%Y%m%d'
+        required: false
+      - field: file_type
+        source: constant
+        value: XRD
+        required: true
+      - field: instrument_type
+        source: constant
+        value: X-ray Diffractometer
+        required: false
+
+    # 自動標籤規則
+    tags:
+      base:
+        - XRD
+        - X-ray衍射
+        - 結構分析
+      conditional:
+        - condition: "sample_name contains 'Cr'"
+          tags:
+            - Cr-doped
+            - 鉻摻雜
+        - condition: "sample_name contains 'Mn'"
+          tags:
+            - Mn-based
+            - 錳基材料
+        - condition: "filename contains 'beta'"
+          tags:
+            - beta-phase
+            - β相
+        - condition: "filename contains 'alpha'"
+          tags:
+            - alpha-phase
+            - α相
+
+  # EIS (Electrochemical Impedance Spectroscopy) 電化學阻抗
+  eis:
+    patterns:
+      - pattern: '(?P<sample>\w+)_EIS_(?P<date>\d{8})'
+        description: '標準格式: Sample_EIS_YYYYMMDD'
+        confidence: 0.95
+      - pattern: 'EIS[_-](?P<sample>\w+)[_-](?P<date>\d{8})'
+        description: 'EIS開頭格式'
+        confidence: 0.90
+      - pattern: '(?P<sample>\w+)[_-]Nyquist[_-](?P<date>\d{8})'
+        description: 'Nyquist圖格式'
+        confidence: 0.88
+
+    extensions:
+      - .txt
+      - .csv
+      - .xlsx
+      - .mpt
+      - .mpr
+
+    metadata_extraction:
+      - field: sample_id
+        source: group
+        group_name: sample
+      - field: test_date
+        source: group
+        group_name: date
+        format: '%Y%m%d'
+      - field: file_type
+        source: constant
+        value: EIS
+      - field: instrument_type
+        source: constant
+        value: Potentiostat
+
+    tags:
+      base:
+        - EIS
+        - 電化學阻抗
+        - 電化學
+      conditional:
+        - condition: "filename contains 'nyquist'"
+          tags:
+            - Nyquist圖
+        - condition: "filename contains 'bode'"
+          tags:
+            - Bode圖
+
+  # SEM (Scanning Electron Microscopy) 掃描電子顯微鏡
+  sem:
+    patterns:
+      - pattern: '(?P<sample>\w+)_SEM_(?P<date>\d{4}-\d{2}-\d{2})(?:_(?P<sequence>\d{2}))?'
+        description: '標準格式: Sample_SEM_YYYY-MM-DD_序號'
+        confidence: 0.95
+      - pattern: 'SEM[_-](?P<sample>\w+)[_-](?P<date>\d{8})'
+        description: 'SEM開頭格式'
+        confidence: 0.90
+      - pattern: '(?P<sample>\w+)[_-]morphology[_-](?P<date>\d{8})'
+        description: '形貌觀察格式'
+        confidence: 0.85
+
+    extensions:
+      - .tif
+      - .tiff
+      - .jpg
+      - .jpeg
+      - .png
+      - .bmp
+      - .dm3
+      - .dm4
+
+    metadata_extraction:
+      - field: sample_id
+        source: group
+        group_name: sample
+      - field: test_date
+        source: group
+        group_name: date
+        format: '%Y-%m-%d'
+      - field: sequence
+        source: group
+        group_name: sequence
+      - field: file_type
+        source: constant
+        value: SEM
+      - field: instrument_type
+        source: constant
+        value: Scanning Electron Microscope
+
+    tags:
+      base:
+        - SEM
+        - 電子顯微鏡
+        - 形貌分析
+      conditional:
+        - condition: "filename contains 'morphology'"
+          tags:
+            - 形貌觀察
+        - condition: "filename contains 'particle'"
+          tags:
+            - 粒子分析
+
+  # CV (Cyclic Voltammetry) 循環伏安法
+  cv:
+    patterns:
+      - pattern: '(?P<sample>\w+)_CV_(?P<date>\d{8})(?:_(?P<scan_rate>\d+)mVs)?'
+        description: '標準格式: Sample_CV_YYYYMMDD_掃描速率'
+        confidence: 0.95
+      - pattern: 'CV[_-](?P<sample>\w+)[_-](?P<date>\d{8})'
+        description: 'CV開頭格式'
+        confidence: 0.90
+
+    extensions:
+      - .txt
+      - .csv
+      - .xlsx
+      - .mpt
+      - .mpr
+
+    metadata_extraction:
+      - field: sample_id
+        source: group
+        group_name: sample
+      - field: test_date
+        source: group
+        group_name: date
+        format: '%Y%m%d'
+      - field: scan_rate
+        source: group
+        group_name: scan_rate
+        unit: 'mV/s'
+      - field: file_type
+        source: constant
+        value: CV
+
+    tags:
+      base:
+        - CV
+        - 循環伏安
+        - 電化學
+
+  # 充放電測試 (Battery Cycling)
+  battery_test:
+    patterns:
+      - pattern: '(?P<sample>\w+)_(?P<test_type>charge|discharge|cycle)_(?P<date>\d{8})'
+        description: '電池測試格式'
+        confidence: 0.90
+      - pattern: '(?P<sample>\w+)_rate_(?P<rate>[\d\.]+)C_(?P<date>\d{8})'
+        description: '倍率測試格式'
+        confidence: 0.92
+
+    extensions:
+      - .txt
+      - .csv
+      - .xlsx
+
+    metadata_extraction:
+      - field: sample_id
+        source: group
+        group_name: sample
+      - field: test_type
+        source: group
+        group_name: test_type
+      - field: test_date
+        source: group
+        group_name: date
+        format: '%Y%m%d'
+      - field: c_rate
+        source: group
+        group_name: rate
+
+    tags:
+      base:
+        - 電池測試
+        - 電化學
+      conditional:
+        - condition: "test_type == 'cycle'"
+          tags:
+            - 循環測試
+        - condition: "test_type == 'charge'"
+          tags:
+            - 充電測試
+        - condition: "test_type == 'discharge'"
+          tags:
+            - 放電測試
+        - condition: "filename contains 'rate'"
+          tags:
+            - 倍率測試
+
+# 標籤同義詞映射（用於標準化標籤）
+tag_synonyms:
+  XRD:
+    - xrd
+    - X-ray
+    - x-ray diffraction
+    - 衍射
+
+  SEM:
+    - sem
+    - scanning electron microscopy
+    - 電子顯微鏡
+    - 電鏡
+
+  EIS:
+    - eis
+    - impedance
+    - 阻抗
+    - electrochemical impedance
+
+  電化學:
+    - electrochemical
+    - electrochemistry
+    - 電化學測試
+
+# 元數據驗證規則
+validation:
+  date:
+    # 日期範圍驗證（防止錯誤的日期解析）
+    min_year: 2020
+    max_year: 2030
+
+  sample_id:
+    # 樣品ID格式驗證
+    pattern: '^[A-Za-z0-9_-]+$'
+    min_length: 1
+    max_length: 50
+
+  confidence:
+    # 置信度範圍
+    min: 0.0
+    max: 1.0
