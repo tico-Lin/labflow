@@ -1,0 +1,414 @@
+"""
+æªæ??é? API è·¯ç±
+
+?ä?æªæ??ªå??é??æ¹?å?é¡ãå?é¡ç??æ¥è©¢ç??è½??
+
+ç«¯é?ï¼?
+- POST /files/classify - ?¹é??é?æªæ?
+- POST /files/{file_id}/auto-classify - ?ªå??é??®åæ?æ¡?
+- GET /files/classifications - ?¥è©¢?é?çµ±è?
+- GET /files/{file_id}/classification - ?¥è©¢æªæ??å?é¡ç???
+
+ä½èï?GitHub Copilot
+?µå»º?¥æ?ï¼?026-02-17
+"""
+
+import logging
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from .. import models, schemas
+from ..database import get_db
+from ..security import get_current_user_optional, is_offline_user
+from ..services.classification_service import FileClassificationService
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/files", tags=["File Classification"])
+
+# ?å??å?é¡æ???
+classification_service = FileClassificationService()
+
+
+@router.post(
+    "/classify",
+    response_model=schemas.BatchClassificationResponse,
+    summary="?¹é??é?æªæ?",
+    description="""
+    ?¹é??ªå??é?æªæ?ä¸¦å¯?¸æ??ªå?æ·»å?æ¨ç±¤??
+
+    ?è½ï¼?
+    - ?¹æ?æªå??æ´å±å?è­å¥æªæ?é¡å?
+    - ?å??æ¸?ï?æ¨???ãæ¥?ãå??¨é??ç?ï¼?
+    - ?æ?æ¨ç±¤å»ºè­°
+    - ?¯èª?åµå»ºå?æ·»å?æ¨ç±¤
+
+    æ¬é?ï¼é?è¦?Editor ??Admin è§è²
+    """,
+)
+def batch_classify_files(
+    request: schemas.BatchClassificationRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user_optional),
+):
+    """?¹é??é?æªæ?"""
+    # æª¢æ¥?¢ç?æ¨¡å?
+    if is_offline_user(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="?¢ç?æ¨¡å?ä¸ä??è¨±?·è??¹é??é??è??»é?å¾å·è¡æ­¤?ä???,
+        )
+    # æª¢æ¥æ¬é?ï¼é?è¦?editor ??adminï¼?
+    if current_user.get("role") not in ["editor", "admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="?ªæ? Editor ??Admin ?¯ä»¥?·è??¹é??é?",
+        )
+
+    results = []
+    errors = []
+    successful = 0
+    failed = 0
+
+    for file_id in request.file_ids:
+        try:
+            # ?¥è©¢æªæ?
+            db_file = db.query(models.File).filter(models.File.id == file_id).first()
+            if not db_file:
+                errors.append({"file_id": file_id, "error": f"æªæ?ä¸å??? {file_id}"})
+                failed += 1
+                continue
+
+            # ?·è??é?
+            classification_result = classification_service.classify_file(
+                db_file.filename
+            )
+
+            tags_created = []
+            tags_added = []
+
+            # ?ªå?æ·»å?æ¨ç±¤
+            if request.auto_tag and classification_result.suggested_tags:
+                for tag_name in classification_result.suggested_tags:
+                    # ?¥æ¾?åµå»ºæ?ç±?
+                    tag = (
+                        db.query(models.Tag).filter(models.Tag.name == tag_name).first()
+                    )
+
+                    if not tag:
+                        if request.auto_create_tags:
+                            # ?µå»º?°æ?ç±?
+                            tag = models.Tag(name=tag_name)
+                            db.add(tag)
+                            db.flush()  # ?²å? tag.id
+                            tags_created.append(tag_name)
+                            logger.info(f"?ªå??µå»ºæ¨ç±¤: {tag_name}")
+                        else:
+                            # ä¸èª?åµå»ºï?è·³é?
+                            continue
+
+                    # æ·»å?æ¨ç±¤?è¯ï¼é¿?é?è¤ï?
+                    if tag not in db_file.tags:
+                        db_file.tags.append(tag)
+                        tags_added.append(tag_name)
+
+            # ä¿å??é?çµæ??°è¨»è§?
+            classification_annotation = models.Annotation(
+                file_id=db_file.id,
+                data={
+                    "classification": {
+                        "file_type": classification_result.file_type,
+                        "confidence": classification_result.confidence,
+                        "metadata": classification_result.metadata,
+                        "suggested_tags": classification_result.suggested_tags,
+                    }
+                },
+                source="auto",
+            )
+            db.add(classification_annotation)
+
+            db.commit()
+
+            # æ·»å??°ç???
+            results.append(
+                schemas.FileClassificationResponse(
+                    file_id=db_file.id,
+                    filename=db_file.filename,
+                    classification=schemas.ClassificationResult(
+                        file_type=classification_result.file_type,
+                        confidence=classification_result.confidence,
+                        suggested_tags=classification_result.suggested_tags,
+                        metadata=classification_result.metadata,
+                        source=classification_result.source,
+                    ),
+                    tags_created=tags_created,
+                    tags_added=tags_added,
+                )
+            )
+
+            successful += 1
+            logger.info(f"æªæ??é??å?: {db_file.filename} (ID: {file_id})")
+
+        except Exception as e:
+            db.rollback()
+            logger.error(f"?é?æªæ?å¤±æ? (ID: {file_id}): {str(e)}")
+            errors.append({"file_id": file_id, "error": str(e)})
+            failed += 1
+
+    return schemas.BatchClassificationResponse(
+        total=len(request.file_ids),
+        successful=successful,
+        failed=failed,
+        results=results,
+        errors=errors,
+    )
+
+
+@router.post(
+    "/{file_id}/auto-classify",
+    response_model=schemas.FileClassificationResponse,
+    summary="?ªå??é??®åæ?æ¡?,
+    description="""
+    ?ªå??é??å?æªæ?ä¸¦è??å?é¡ç??ã?
+
+    ?¯é¸?æ¯?¦èª?æ·»? å»ºè­°ç?æ¨ç±¤??
+
+    æ¬é?ï¼é?è¦?Editor ??Admin è§è²
+    """,
+)
+def auto_classify_file(
+    file_id: int,
+    auto_tag: bool = True,
+    auto_create_tags: bool = True,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user_optional),
+):
+    """?ªå??é??®åæ?æ¡?""
+    # æª¢æ¥?¢ç?æ¨¡å?
+    if is_offline_user(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="?¢ç?æ¨¡å?ä¸ä??è¨±?·è?æªæ??é??è??»é?å¾å·è¡æ­¤?ä???,
+        )
+    # æª¢æ¥æ¬é?
+    if current_user.get("role") not in ["editor", "admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="?ªæ? Editor ??Admin ?¯ä»¥?·è?æªæ??é?",
+        )
+
+    # ?¥è©¢æªæ?
+    db_file = db.query(models.File).filter(models.File.id == file_id).first()
+    if not db_file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"æªæ?ä¸å??? {file_id}"
+        )
+
+    try:
+        # ?·è??é?
+        classification_result = classification_service.classify_file(db_file.filename)
+
+        tags_created = []
+        tags_added = []
+
+        # ?ªå?æ·»å?æ¨ç±¤
+        if auto_tag and classification_result.suggested_tags:
+            for tag_name in classification_result.suggested_tags:
+                # ?¥æ¾?åµå»ºæ?ç±?
+                tag = db.query(models.Tag).filter(models.Tag.name == tag_name).first()
+
+                if not tag:
+                    if auto_create_tags:
+                        # ?µå»º?°æ?ç±?
+                        tag = models.Tag(name=tag_name)
+                        db.add(tag)
+                        db.flush()
+                        tags_created.append(tag_name)
+                        logger.info(f"?ªå??µå»ºæ¨ç±¤: {tag_name}")
+                    else:
+                        continue
+
+                # æ·»å?æ¨ç±¤?è¯ï¼é¿?é?è¤ï?
+                if tag not in db_file.tags:
+                    db_file.tags.append(tag)
+                    tags_added.append(tag_name)
+
+        # ä¿å??é?çµæ??°è¨»è§?
+        classification_annotation = models.Annotation(
+            file_id=db_file.id,
+            data={
+                "classification": {
+                    "file_type": classification_result.file_type,
+                    "confidence": classification_result.confidence,
+                    "metadata": classification_result.metadata,
+                    "suggested_tags": classification_result.suggested_tags,
+                }
+            },
+            source="auto",
+        )
+        db.add(classification_annotation)
+
+        db.commit()
+
+        logger.info(
+            f"æªæ??é??å?: {db_file.filename} -> {classification_result.file_type} "
+            f"(confidence: {classification_result.confidence:.2f})"
+        )
+
+        return schemas.FileClassificationResponse(
+            file_id=db_file.id,
+            filename=db_file.filename,
+            classification=schemas.ClassificationResult(
+                file_type=classification_result.file_type,
+                confidence=classification_result.confidence,
+                suggested_tags=classification_result.suggested_tags,
+                metadata=classification_result.metadata,
+                source=classification_result.source,
+            ),
+            tags_created=tags_created,
+            tags_added=tags_added,
+        )
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"?é?æªæ?å¤±æ? (ID: {file_id}): {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"?é?æªæ?å¤±æ?: {str(e)}",
+        )
+
+
+@router.get(
+    "/{file_id}/classification",
+    response_model=Optional[schemas.ClassificationResult],
+    summary="?¥è©¢æªæ??å?é¡ç???,
+    description="""
+    ?¥è©¢æªæ??å?é¡ç??ï?å¾è¨»è§?¸­è®?æ??°ç??é?ä¿¡æ¯ï¼ã?
+
+    å¦æ?æªæ?å°æª?é?ï¼è???null??
+    """,
+)
+def get_file_classification(
+    file_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user_optional),
+):
+    """?¥è©¢æªæ??å?é¡ç???""
+    # ?¥è©¢æªæ?
+    db_file = db.query(models.File).filter(models.File.id == file_id).first()
+    if not db_file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"æªæ?ä¸å??? {file_id}"
+        )
+
+    # ?¥è©¢??°ç??é?è¨»è§£
+    classification_annotation = (
+        db.query(models.Annotation)
+        .filter(
+            models.Annotation.file_id == file_id,
+            models.Annotation.source == "auto",
+        )
+        .order_by(models.Annotation.created_at.desc())
+        .first()
+    )
+
+    if not classification_annotation:
+        return None
+
+    # ?å??é?ä¿¡æ¯
+    classification_data = classification_annotation.data.get("classification", {})
+
+    return schemas.ClassificationResult(
+        file_type=classification_data.get("file_type", "Unknown"),
+        confidence=classification_data.get("confidence", 0.0),
+        suggested_tags=classification_data.get("suggested_tags", []),
+        metadata=classification_data.get("metadata", {}),
+        source="auto",
+    )
+
+
+@router.get(
+    "/classifications/stats",
+    response_model=schemas.ClassificationStatsResponse,
+    summary="?¥è©¢?é?çµ±è?",
+    description="""
+    ?¥è©¢??å·²?é?æªæ??çµ±è¨ä¿¡?¯ã?
+
+    ?æ¬ï¼?
+    - ç¸½æ?æ¡æ¸
+    - ?é??å?ä½?
+    - å¹³å?ç½®ä¿¡åº?
+    - ?ªå?é¡æ?æ¡æ¸??
+    """,
+)
+def get_classification_stats(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user_optional),
+):
+    """?¥è©¢?é?çµ±è?"""
+    # ?¥è©¢??å?é¡è¨»è§?
+    classification_annotations = (
+        db.query(models.Annotation)
+        .filter(models.Annotation.source == "auto")
+        .all()
+    )
+
+    if not classification_annotations:
+        return schemas.ClassificationStatsResponse(
+            total=0, by_type={}, avg_confidence=0.0, unknown_count=0, unknown_rate=0.0
+        )
+
+    # çµ±è?
+    type_counts: Dict[str, int] = {}
+    total_confidence = 0.0
+    unknown_count = 0
+
+    # ä½¿ç¨å­å¸?»é?ï¼æ??æ?æ¡åªçµ±è???°ç??é?ï¼?
+    file_classifications: Dict[int, Dict[str, Any]] = {}
+
+    for annotation in classification_annotations:
+        file_id = annotation.file_id
+        classification_data = annotation.data.get("classification", {})
+
+        # ?ªä??æ??°ç??é?ï¼æ? annotation.id ?¤æ·ï¼?
+        if file_id not in file_classifications or annotation.id > file_classifications[
+            file_id
+        ].get("annotation_id", 0):
+            file_classifications[file_id] = {
+                "annotation_id": annotation.id,
+                "file_type": classification_data.get("file_type", "Unknown"),
+                "confidence": classification_data.get("confidence", 0.0),
+            }
+
+    # çµ±è??»é?å¾ç??¸æ?
+    for file_id, data in file_classifications.items():
+        file_type = data["file_type"]
+        confidence = data["confidence"]
+
+        type_counts[file_type] = type_counts.get(file_type, 0) + 1
+        total_confidence += confidence
+
+        if file_type == "Unknown":
+            unknown_count += 1
+
+    total = len(file_classifications)
+
+    return schemas.ClassificationStatsResponse(
+        total=total,
+        by_type=type_counts,
+        avg_confidence=total_confidence / total if total > 0 else 0.0,
+        unknown_count=unknown_count,
+        unknown_rate=unknown_count / total if total > 0 else 0.0,
+    )
+
+
+@router.get(
+    "/supported-types",
+    response_model=Dict[str, List[str]],
+    summary="?¥è©¢?¯æ´?æ?æ¡é???,
+    description="è¿å?ç³»çµ±?¯æ´?æ??æ?æ¡é??å?å°æ??æ´å±å?",
+)
+def get_supported_file_types():
+    """?¥è©¢?¯æ´?æ?æ¡é???""
+    return classification_service.get_supported_types()

@@ -1,0 +1,452 @@
+"""
+æªæ??é? API æ¸¬è©¦
+
+æ¸¬è©¦æªæ??é??¸é???API ç«¯é?ï¼?
+- POST /files/classify - ?¹é??é?
+- POST /files/{file_id}/auto-classify - ?®åæ?æ¡å?é¡?
+- GET /files/{file_id}/classification - ?¥è©¢?é?çµæ?
+- GET /files/classifications/stats - ?¥è©¢çµ±è?
+- GET /files/supported-types - ?¥è©¢?¯æ´?é???
+
+ä½èï?GitHub Copilot
+?µå»º?¥æ?ï¼?026-02-17
+"""
+
+import hashlib
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.database import Base, get_db
+from app.main import app
+from app.models import Annotation, File, Tag, User
+from app.security import create_access_token
+
+
+# ä½¿ç¨ç®?®å?å¸ä»£?¿bcryptä»¥é¿?å¯¼?¥é®é¢?
+def simple_hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+# è¨­ç½®æ¸¬è©¦è³æ?åº?
+SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def override_get_db():
+    """è¦è?è³æ?åº«ä?è³?""
+    try:
+        db = TestingSessionLocal()
+        yield db
+    finally:
+        db.close()
+
+
+app.dependency_overrides[get_db] = override_get_db
+
+client = TestClient(app)
+
+
+@pytest.fixture(scope="function")
+def test_db():
+    """?µå»ºæ¸¬è©¦è³æ?åº?""
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+    yield db
+    db.close()
+    Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
+def admin_token(test_db):
+    """?µå»ºç®¡ç??¡ç¨?¶ä¸¦è¿å? token"""
+    admin = User(
+        username="admin",
+        email="admin@test.com",
+        hashed_password=simple_hash_password("admin123"),
+        role="admin",
+    )
+    test_db.add(admin)
+    test_db.commit()
+    test_db.refresh(admin)
+
+    token = create_access_token({"sub": admin.username, "role": admin.role})
+    return token
+
+
+@pytest.fixture
+def editor_token(test_db):
+    """?µå»ºç·¨è¼¯?ç¨?¶ä¸¦è¿å? token"""
+    editor = User(
+        username="editor",
+        email="editor@test.com",
+        hashed_password=simple_hash_password("editor123"),
+        role="editor",
+    )
+    test_db.add(editor)
+    test_db.commit()
+    test_db.refresh(editor)
+
+    token = create_access_token({"sub": editor.username, "role": editor.role})
+    return token
+
+
+@pytest.fixture
+def viewer_token(test_db):
+    """?µå»º?¥ç??ç¨?¶ä¸¦è¿å? token"""
+    viewer = User(
+        username="viewer",
+        email="viewer@test.com",
+        hashed_password=simple_hash_password("viewer123"),
+        role="viewer",
+    )
+    test_db.add(viewer)
+    test_db.commit()
+    test_db.refresh(viewer)
+
+    token = create_access_token({"sub": viewer.username, "role": viewer.role})
+    return token
+
+
+@pytest.fixture
+def test_files(test_db):
+    """?µå»ºæ¸¬è©¦æªæ?"""
+    files = [
+        File(
+            filename="Cr3_XRD_20250104.xy",
+            storage_key="test/Cr3_XRD_20250104.xy",
+            file_hash="a" * 64,
+        ),
+        File(
+            filename="Sample_A_SEM_2025-01-15_01.tif",
+            storage_key="test/Sample_A_SEM_2025-01-15_01.tif",
+            file_hash="b" * 64,
+        ),
+        File(
+            filename="EIS_MnO2_20250110.txt",
+            storage_key="test/EIS_MnO2_20250110.txt",
+            file_hash="c" * 64,
+        ),
+        File(
+            filename="unknown_file.xyz",
+            storage_key="test/unknown_file.xyz",
+            file_hash="d" * 64,
+        ),
+    ]
+
+    for file in files:
+        test_db.add(file)
+
+    test_db.commit()
+
+    for file in files:
+        test_db.refresh(file)
+
+    return files
+
+
+class TestClassificationAPI:
+    """?é? API æ¸¬è©¦"""
+
+    def test_auto_classify_single_file_success(self, test_files, editor_token):
+        """æ¸¬è©¦?®åæ?æ¡èª?å?é¡?- ?å??´æ¯"""
+        file_id = test_files[0].id  # Cr3_XRD_20250104.xy
+
+        response = client.post(
+            f"/files/{file_id}/auto-classify",
+            headers={"Authorization": f"Bearer {editor_token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["file_id"] == file_id
+        assert data["filename"] == "Cr3_XRD_20250104.xy"
+        assert data["classification"]["file_type"] == "XRD"
+        assert data["classification"]["confidence"] > 0.8
+        assert "XRD" in data["classification"]["suggested_tags"]
+        assert len(data["tags_added"]) > 0
+
+    def test_auto_classify_without_auto_tag(self, test_files, editor_token):
+        """æ¸¬è©¦ä¸èª?æ·»? æ?ç±¤ç??é?"""
+        file_id = test_files[0].id
+
+        response = client.post(
+            f"/files/{file_id}/auto-classify?auto_tag=false",
+            headers={"Authorization": f"Bearer {editor_token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["classification"]["file_type"] == "XRD"
+        assert len(data["tags_added"]) == 0
+
+    def test_auto_classify_permission_denied(self, test_files, viewer_token):
+        """æ¸¬è©¦æ¬é?ä¸è¶³?å?é¡è?æ±?""
+        file_id = test_files[0].id
+
+        response = client.post(
+            f"/files/{file_id}/auto-classify",
+            headers={"Authorization": f"Bearer {viewer_token}"},
+        )
+
+        assert response.status_code == 403
+
+    def test_auto_classify_file_not_found(self, editor_token):
+        """æ¸¬è©¦?é?ä¸å??¨ç?æªæ?"""
+        response = client.post(
+            "/files/999999/auto-classify",
+            headers={"Authorization": f"Bearer {editor_token}"},
+        )
+
+        assert response.status_code == 404
+
+    def test_batch_classify_success(self, test_files, admin_token):
+        """æ¸¬è©¦?¹é??é? - ?å??´æ¯"""
+        file_ids = [f.id for f in test_files[:3]]
+
+        response = client.post(
+            "/files/classify",
+            json={"file_ids": file_ids, "auto_tag": True, "auto_create_tags": True},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["total"] == 3
+        assert data["successful"] == 3
+        assert data["failed"] == 0
+        assert len(data["results"]) == 3
+
+        # æª¢æ¥ç¬¬ä??æ?æ¡ç??é?çµæ?
+        result = data["results"][0]
+        assert result["classification"]["file_type"] == "XRD"
+        assert len(result["tags_added"]) > 0
+
+    def test_batch_classify_with_invalid_files(self, test_files, admin_token):
+        """æ¸¬è©¦?¹é??é??å«?¡æ?æªæ?"""
+        file_ids = [test_files[0].id, 999999, test_files[1].id]
+
+        response = client.post(
+            "/files/classify",
+            json={"file_ids": file_ids, "auto_tag": True, "auto_create_tags": True},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["total"] == 3
+        assert data["successful"] == 2
+        assert data["failed"] == 1
+        assert len(data["errors"]) == 1
+
+    def test_batch_classify_empty_list(self, admin_token):
+        """æ¸¬è©¦ç©ºæ?æ¡å?è¡¨ç??¹é??é?"""
+        response = client.post(
+            "/files/classify",
+            json={"file_ids": [], "auto_tag": True},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        # Pydantic é©è??è©²å¤±æ?ï¼min_items=1ï¼?
+        assert response.status_code == 422
+
+    def test_get_file_classification(self, test_files, editor_token, test_db):
+        """æ¸¬è©¦?¥è©¢æªæ??å?é¡ç???""
+        file_id = test_files[0].id
+
+        # ?å?é¡æ?æ¡?
+        classification_annotation = Annotation(
+            file_id=file_id,
+            data={
+                "classification": {
+                    "file_type": "XRD",
+                    "confidence": 0.95,
+                    "metadata": {"sample": "Cr3"},
+                    "suggested_tags": ["XRD", "X-rayè¡å?"],
+                }
+            },
+            source="auto",
+        )
+        test_db.add(classification_annotation)
+        test_db.commit()
+
+        # ?¥è©¢?é?çµæ?
+        response = client.get(
+            f"/files/{file_id}/classification",
+            headers={"Authorization": f"Bearer {editor_token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["file_type"] == "XRD"
+        assert data["confidence"] == 0.95
+        assert "XRD" in data["suggested_tags"]
+
+    def test_get_file_classification_not_classified(self, test_files, editor_token):
+        """æ¸¬è©¦?¥è©¢?ªå?é¡æ?æ¡ç??é?çµæ?"""
+        file_id = test_files[0].id
+
+        response = client.get(
+            f"/files/{file_id}/classification",
+            headers={"Authorization": f"Bearer {editor_token}"},
+        )
+
+        assert response.status_code == 200
+        assert response.json() is None
+
+    def test_get_classification_stats_empty(self, viewer_token):
+        """æ¸¬è©¦?¥è©¢ç©ºçµ±è¨?""
+        response = client.get(
+            "/files/classifications/stats",
+            headers={"Authorization": f"Bearer {viewer_token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["total"] == 0
+        assert data["by_type"] == {}
+        assert data["avg_confidence"] == 0.0
+
+    def test_get_classification_stats_with_data(
+        self, test_files, viewer_token, test_db
+    ):
+        """æ¸¬è©¦?¥è©¢?å«?¸æ??çµ±è¨?""
+        # ?ºæ?æ¡æ·»? å?é¡è¨»è§?
+        annotations = [
+            Annotation(
+                file_id=test_files[0].id,
+                data={
+                    "classification": {
+                        "file_type": "XRD",
+                        "confidence": 0.95,
+                        "metadata": {},
+                        "suggested_tags": [],
+                    }
+                },
+                source="auto",
+            ),
+            Annotation(
+                file_id=test_files[1].id,
+                data={
+                    "classification": {
+                        "file_type": "SEM",
+                        "confidence": 0.90,
+                        "metadata": {},
+                        "suggested_tags": [],
+                    }
+                },
+                source="auto",
+            ),
+            Annotation(
+                file_id=test_files[2].id,
+                data={
+                    "classification": {
+                        "file_type": "EIS",
+                        "confidence": 0.88,
+                        "metadata": {},
+                        "suggested_tags": [],
+                    }
+                },
+                source="auto",
+            ),
+        ]
+
+        for annotation in annotations:
+            test_db.add(annotation)
+        test_db.commit()
+
+        # ?¥è©¢çµ±è?
+        response = client.get(
+            "/files/classifications/stats",
+            headers={"Authorization": f"Bearer {viewer_token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["total"] == 3
+        assert data["by_type"]["XRD"] == 1
+        assert data["by_type"]["SEM"] == 1
+        assert data["by_type"]["EIS"] == 1
+        assert 0.88 <= data["avg_confidence"] <= 0.95
+        assert data["unknown_count"] == 0
+
+    def test_get_supported_types(self):
+        """æ¸¬è©¦?¥è©¢?¯æ´?æ?æ¡é??ï?ä¸é?è¦è?è­ï?"""
+        response = client.get("/files/supported-types")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert "XRD" in data
+        assert "SEM" in data
+        assert "EIS" in data
+        assert ".xy" in data["XRD"]
+        assert ".tif" in data["SEM"]
+
+    def test_classification_metadata_extraction(self, test_files, editor_token):
+        """æ¸¬è©¦?æ¸?æ??å???""
+        file_id = test_files[0].id  # Cr3_XRD_20250104.xy
+
+        response = client.post(
+            f"/files/{file_id}/auto-classify",
+            headers={"Authorization": f"Bearer {editor_token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        metadata = data["classification"]["metadata"]
+
+        # ?è©²?å??°æ¨£?å?ç¨?
+        assert "sample" in metadata
+        assert metadata["sample"] == "Cr3"
+
+        # ?è©²?å??°æ¥??
+        assert "date" in metadata
+        assert metadata["date"] == "2025-01-04"
+
+        # ?è©²?å??°å??¨é???
+        assert "instrument" in metadata
+        assert metadata["instrument"] == "XRD"
+
+    def test_classification_tag_creation(self, test_files, editor_token, test_db):
+        """æ¸¬è©¦?ªå??µå»ºæ¨ç±¤?è½"""
+        file_id = test_files[0].id
+
+        # ç¢ºä?æ¨ç±¤ä¸å???
+        existing_tags = test_db.query(Tag).all()
+        assert len(existing_tags) == 0
+
+        response = client.post(
+            f"/files/{file_id}/auto-classify?auto_tag=true&auto_create_tags=true",
+            headers={"Authorization": f"Bearer {editor_token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # ?è©²?µå»ºäºæ°æ¨ç±¤
+        assert len(data["tags_created"]) > 0
+        assert len(data["tags_added"]) > 0
+
+        # ç¢ºè?æ¨ç±¤å·²ç?å­å¨?¼è??åº«
+        created_tags = test_db.query(Tag).all()
+        assert len(created_tags) > 0
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

@@ -1,0 +1,2221 @@
+"""
+LabFlow API - å¯¦é?å®¤è??ç®¡?ç³»çµ±å?ç«?
+
+?è½æ¦è¦½ï¼?
+- æªæ?ç®¡ç?ï¼ä??³æ?æ¡ãèª?å»?ï??ºæ¼ SHA-256ï¼ãæ¥è©¢æ?æ¡å?è¡?
+- æ¨ç±¤ç³»çµ±ï¼å»ºç«æ?ç±¤ãçºæªæ?æ·»å?å¤å?å¤æ?ç±¤é???
+- çµè?è¨é?ï¼çºæªæ??å?å¯¦é?çµè??å?
+- è¨»è§£ç³»çµ±ï¼çºæªæ?æ·»å?çµæ???JSON è¨»è§£ï¼æ¯?´èª???å?ä¾æ?ï¼?
+
+?è¡æ¶æ§ï?
+- æ¡æ¶ï¼FastAPI
+- è³æ?åº«ï?SQLite + SQLAlchemy ORM
+- ?²å?å±¤ï?LocalStorageï¼å¯?½æ?ï¼?
+- è¨»è§£å±¤ï?LocalAnnotationProviderï¼å¯?½æ?ï¼?
+
+ä¸»è?ç«¯é?ï¼?
+- GET  /                              ?¥åº·æª¢æ¥
+- POST /files/                        ä¸å³æªæ?
+- GET  /files/                        ?å?æªæ??è¡¨
+- POST /tags/                         å»ºç?æ¨ç±¤
+- POST /files/{id}/tags/{tag_id}      ?ºæ?æ¡æ·»? æ?ç±?
+- POST /files/{id}/conclusions/       ?ºæ?æ¡æ·»? ç?è«?
+- POST /files/{id}/annotations/       ?ºæ?æ¡æ·»? è¨»è§?
+- GET  /files/{id}/annotations/       ?å?æªæ??æ??è¨»è§?
+
+è¨­è??¹é?ï¼?
+- æªæ??»é?ï¼éé? file_hash ?¿å??è??²å??¸å?æªæ?
+- ä¾è³´æ³¨å¥ï¼ä½¿??Depends(get_db) ç®¡ç?è³æ?åº«é???å½?±æ?
+- ?½è±¡?ï?storage ??annotation_provider ?¯è?é¬æ¿?å¯¦ä½ï?å¦é²ç«¯å²å­ãé?ç«¯è¨»è§???ï?
+
+?°å?è®æ¸ï¼?
+- STORAGE_PATHï¼æ?æ¡å²å­è·¯å¾ï??è¨­ï¼data/managedï¼?
+"""
+
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, status, Header, Body, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.openapi.utils import get_openapi
+from sqlalchemy.orm import Session
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel, Field
+import logging
+import time
+
+from . import database, models
+from . import schemas
+from . import annotation
+from . import security
+from . import i18n
+from .storage import LocalStorage, calculate_file_hash
+from .models import file_tags
+from .logging_config import get_logger, configure_logging, log_with_context
+from .services.reasoning_service import ReasoningService
+from .api.reasoning_routes import router as reasoning_router
+from .api.classification_routes import router as classification_router
+from .services.script_service import ScriptService
+from .services.analysis_service import AnalysisService, AnalysisServiceError
+from .services.classification_service import FileClassificationService
+from uuid import UUID, uuid4
+import os
+
+# è¨­å??¥è?
+configure_logging()
+logger = get_logger(__name__)
+
+# ?å??è??åº« (??labflow.db ä¸å??¨æ??ªå?å»ºç?)
+models.Base.metadata.create_all(bind=database.engine)
+
+app = FastAPI(
+    title="LabFlow API",
+    description="å¯¦é?å®¤ç?ç©¶è??ç®¡?ç³»çµ?- ?¯æ´æªæ??»é??æ?ç±¤ãç?è«ãç?æ§å?æ¨è¨»?JWT èº«ä»½é©è?",
+    version="0.2.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
+)
+
+
+@app.middleware("http")
+async def request_observability_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-Id") or str(uuid4())
+    start_time = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        log_with_context(
+            logger,
+            "error",
+            "Request failed",
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+            duration_ms=round(duration_ms, 2),
+            error=str(exc),
+        )
+        raise
+    duration_ms = (time.perf_counter() - start_time) * 1000
+    response.headers["X-Request-Id"] = request_id
+    log_with_context(
+        logger,
+        "info",
+        "Request completed",
+        request_id=request_id,
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+        duration_ms=round(duration_ms, 2),
+    )
+    return response
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def custom_openapi():
+    """?ªå?ç¾?OpenAPI ?æ?"""
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title="LabFlow API",
+        version="0.2.0",
+        description="""
+        # LabFlow - å¯¦é?å®¤ç?ç©¶è??ç®¡?ç³»çµ?
+
+        ## ?è½æ¦è¦½
+
+        - **æªæ?ç®¡ç?**: ä¸å³æªæ??èª?å»?ãæ¥è©¢å?è¡?
+        - **æ¨ç±¤ç³»çµ±**: å»ºç?æ¨ç±¤?çºæªæ?æ·»å?å¤å?å¤æ?ç±?
+        - **çµè?è¨é?**: ?ºæ?æ¡é?? å¯¦é©ç?è«æ?å­?
+        - **çµæ??æ?è¨?*: ?ºæ?æ¡æ·»??JSON ?¼å??ç?æ§å?æ¨è¨»
+        - **èº«ä»½é©è?**: JWT Bearer Token èªè??ç¨?¶ç®¡?ãRBAC
+        - **?¹é??ä?**: ?¹é?ä¸å³?æ¹?åª?¤ãæ¹?å»ºç«æ?ç±?
+        - **?§è½?ªå?**: Redis å¿«å??è??åº«ç´¢å??æ¥è©¢åª??
+
+        ## èªè?
+
+        å¤§å???API ?è¦?JWT Bearer Token èªè???
+
+        1. ä½¿ç¨ `POST /auth/login` ??`POST /auth/register` ?å?ä»¤ç?
+        2. ?¨è?æ±é ­ä¸­æ·»?? `Authorization: Bearer <token>`
+
+        ## ?æ¬æ­·å²
+
+        - **v0.2.0**: ?ç¢å°±ç??æ¬
+          - JWT èªè???RBAC
+          - ?¹é??ä? API
+          - ?§è½?ªå?ï¼ç´¢å¼ãå¿«?ãæ¥è©¢åª?ï?
+          - å®æ´æ¸¬è©¦è¦è?
+          - çµæ??æ¥èª?
+        - **v0.1.1**: è³æ??æ­¥?è½
+        - **v0.1.0**: MVP ?æ¬
+
+        ## ?¨ç½²?å?
+
+        ### ?¬å°?ç¼
+        ```bash
+        python -m venv .venv
+        .venv/Scripts/activate
+        pip install -r requirements.txt
+        python -m uvicorn app.main:app --reload
+        ```
+
+        ### Docker ?¨ç½²
+        ```bash
+        docker-compose up -d
+        ```
+
+        ### ?å??è??åº«
+        ```bash
+        python -m app.init_db
+        ```
+
+        ## API ç«¯é?çµç?
+
+        - `/auth/` - èªè?ç«¯é?
+        - `/users/` - ?¨æ¶ç®¡ç?
+        - `/files/` - æªæ?ç®¡ç?
+        - `/tags/` - æ¨ç±¤ç®¡ç?
+        - `/admin/` - ç³»çµ±ç®¡ç?
+        """,
+        routes=app.routes,
+    )
+
+    # 添加自定義的標籤分組
+    openapi_schema["tags"] = [
+        {
+            "name": "認證",
+            "description": "使用者認證與令牌管理"
+        },
+        {
+            "name": "檔案管理",
+            "description": "檔案上傳、刪除、查詢"
+        },
+        {
+            "name": "標籤系統",
+            "description": "標籤管理與標籤關聯"
+        },
+        {
+            "name": "結論與註解",
+            "description": "結論記錄的查詢和維護"
+        },
+        {
+            "name": "註解",
+            "description": "註解上傳、刪除、建立"
+        },
+        {
+            "name": "系統維護",
+            "description": "管理員工具與系統管理"
+        },
+        {
+            "name": "整合工具",
+            "description": "外部整合工具與集成接口"
+        },
+        {
+            "name": "推理鏈",
+            "description": "推理鏈管理與執行"
+        }
+    ]
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
+
+app.include_router(reasoning_router)
+app.include_router(classification_router)
+
+# Annotation provider (?¬å°å¯¦ä?)
+annotation_provider = annotation.LocalAnnotationProvider()
+
+# å»ºç??¨å? storage å¯¦ä?ï¼æ?ä½¿ç¨?°å?è®æ¸ STORAGE_PATHï¼è¥?ªè¨­å®å??è¨­ data/managedï¼?
+storage = LocalStorage()
+
+# å»ºç??¨å?æªæ??é??å?å¯¦ä?
+classification_service = FileClassificationService()
+
+# ?å¤§ä??³å¤§å°ï?bytesï¼ï??¯ç±?°å?è®æ¸è¦å¯«ï¼é?è¨?50 MiB
+MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE", str(50 * 1024 * 1024)))
+
+# ?¬å°?¢ç?æ¨¡å?ï¼é?è¨?trueï¼?
+OFFLINE_MODE = os.getenv("OFFLINE_MODE", "true").strip().lower() in {"1", "true", "yes"}
+
+# ?å?è³æ?åº«é???ä?è³?
+def get_db():
+    db = database.SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def check_offline_write(current_user: Dict[str, Any], operation: str = "ä¿®æ¹") -> None:
+    """
+    æª¢æ¥?¢ç??¨æ¶?¯å¦?è©¦ä¿®æ¹?ä?
+
+    Args:
+        current_user: ?¶å??¨æ¶ä¿¡æ¯
+        operation: ?ä??ç¨±ï¼ç¨?¼é¯èª¤è??¯ï?
+
+    Raises:
+        HTTPException: ?¥çº?¢ç??¨æ¶ä¸å?è©¦ä¿®??
+    """
+    if security.is_offline_user(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"?¢ç?æ¨¡å?ä¸ä??è¨±?·è? {operation} ?ä??è??»é?å¾å·è¡æ­¤?ä???
+        )
+
+
+# å®ç¾©?¥æ¶è³æ??æ ¼å¼?
+class AnnotationCreate(BaseModel):
+    """æ¨è¨»è³æ?æ¨¡å?"""
+    data: Dict[str, Any] = Field(..., description="æ¨è¨»?§å®¹ (?¯æ´ä»»æ? JSON çµæ?)")
+    source: str = Field(default="manual", description="æ¨è¨»ä¾æ? (manual/auto/imported)")
+
+# --- API è·¯ç± ---
+
+@app.get("/")
+def read_root():
+    """?¹è·¯å¾ï?API ?è???ç¢ºèª?""
+    return {"message": "LabFlow API is running!"}
+
+
+@app.get("/health")
+def health_check():
+    """?¥åº·æª¢æ¥ç«¯é?"""
+    return {"status": "ok", "offline_mode": OFFLINE_MODE, "mode": "local"}
+
+
+# ==================== ?é???(i18n) ç«¯é? ====================
+
+@app.get("/i18n/locales", tags=["i18n"])
+def get_available_locales():
+    """
+    ?²å???å¯?¨ç?èªè?ä»?¢¼
+
+    Returns:
+        ?¯ç¨èªè?ä»?¢¼?è¡¨ï¼ä?å¦?["zh", "en"]
+    """
+    return {"locales": i18n.get_available_locales()}
+
+
+@app.get("/i18n/translations/{locale}", tags=["i18n"])
+def get_translations(locale: str):
+    """
+    ?²å??å?èªè??æ??ç¿»è­?
+
+    Args:
+        locale: èªè?ä»?¢¼ï¼ä?å¦?"zh", "en"
+
+    Returns:
+        è©²è?è¨?å??´ç¿»è­¯å???
+    """
+    manager = i18n.get_i18n_manager()
+
+    if locale not in manager.translations:
+        raise HTTPException(
+            status_code=404,
+            detail=f"èªè? '{locale}' ä¸å???
+        )
+
+    return {
+        "locale": locale,
+        "translations": manager.translations[locale]
+    }
+
+
+@app.get("/i18n/translate/{locale}/{key:path}", tags=["i18n"])
+def translate_key(locale: str, key: str):
+    """
+    ?²å??å?èªè??éµ?ç¿»è­?
+
+    Args:
+        locale: èªè?ä»?¢¼ï¼ä?å¦?"zh", "en"
+        key: ç¿»è­¯?µï??¯æ?é»å??ç?åµå?çµæ?ï¼ä?å¦?"common.welcome"
+
+    Returns:
+        ç¿»è­¯å¾ç??æ¬
+    """
+    translator = i18n.get_translator(locale)
+    translation = translator(key)
+
+    return {
+        "locale": locale,
+        "key": key,
+        "translation": translation
+    }
+
+
+@app.get("/analysis/tools", response_model=List[schemas.AnalysisToolSpec], tags=["?æ?å·¥å·"])
+def list_analysis_tools(db: Session = Depends(get_db)):
+    service = AnalysisService(db, storage)
+    return service.list_tools()
+
+
+@app.post("/analysis/run", response_model=schemas.AnalysisRunResponse, tags=["?æ?å·¥å·"])
+def run_analysis(request: schemas.AnalysisRunRequest, db: Session = Depends(get_db)):
+    service = AnalysisService(db, storage)
+    try:
+        result = service.run_tool(
+            tool_id=request.tool_id,
+            file_id=request.file_id,
+            parameters=request.parameters,
+            store_output=request.store_output,
+        )
+    except AnalysisServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return result
+
+
+# ==================== èº«ä»½é©è?ç«¯é? ====================
+
+@app.post("/auth/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
+def register(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
+    """
+    ?¨æ¶è¨»å?ç«¯é?
+
+    - æª¢æ¥?¨æ¶?ç¨±?éµä»¶æ¯?¦å·²å­å¨
+    - å°å?ç¢¼é²è? bcrypt ?æ?
+    - ?è¨­è§è²??viewer
+    """
+    # æª¢æ¥?¨æ¶?ç¨±?¯å¦å·²å???
+    existing_user = db.query(models.User).filter(models.User.username == user_data.username).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="?¨æ¶?ç¨±å·²å???
+        )
+
+    # æª¢æ¥?µä»¶?¯å¦å·²å???
+    if user_data.email:
+        existing_email = db.query(models.User).filter(models.User.email == user_data.email).first()
+        if existing_email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="?µä»¶å·²è¢«ä½¿ç¨"
+            )
+
+    # å»ºç??°ç¨??
+    hashed_password = security.hash_password(user_data.password)
+    db_user = models.User(
+        username=user_data.username,
+        email=user_data.email,
+        hashed_password=hashed_password,
+        role="viewer"
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+
+    logger.info(f"?°ç¨?¶å·²è¨»å?: {user_data.username}")
+    return db_user
+
+
+@app.post("/auth/login", response_model=schemas.TokenResponse)
+def login(login_data: schemas.UserLogin, db: Session = Depends(get_db)):
+    """
+    ?¨æ¶?»é?ç«¯é?
+
+    - é©è??¨æ¶?ç¨±?å?ç¢?
+    - è¿å? access_token ??refresh_token
+    """
+    # ?¥è©¢?¨æ¶
+    user = db.query(models.User).filter(models.User.username == login_data.username).first()
+
+    if not user or not security.verify_password(login_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="?¨æ¶?ç¨±?å?ç¢¼ä?æ­?¢º"
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="å¸³è?å·²å???
+        )
+
+    # å»ºç?ä»¤ç?
+    access_token = security.create_access_token({
+        "sub": user.id,
+        "username": user.username,
+        "role": user.role
+    })
+
+    refresh_token = security.create_refresh_token({
+        "sub": user.id,
+        "username": user.username
+    })
+
+    logger.info(f"?¨æ¶?»é?: {user.username}")
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }
+
+
+@app.post("/auth/refresh", response_model=schemas.TokenResponse)
+def refresh_token(token_req: security.TokenRequest, db: Session = Depends(get_db)):
+    """
+    ä»¤ç??·æ°ç«¯é?
+
+    - ä½¿ç¨ refresh_token ?²å??°ç? access_token
+    """
+    try:
+        payload = security.verify_token(token_req.refresh_token)
+        user_id = payload.get("sub")
+
+        if user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="?¡æ??å·?°ä»¤??
+            )
+
+        # å¾è??åº«?æ°?¥è©¢?¨æ¶ä¿¡æ¯
+        user = db.query(models.User).filter(models.User.id == user_id).first()
+        if not user or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="?¨æ¶ä¸å??¨æ?å·²å???
+            )
+
+        # å»ºç??°ç? access_token
+        access_token = security.create_access_token({
+            "sub": user.id,
+            "username": user.username,
+            "role": user.role
+        })
+
+        # å»ºç??°ç? refresh_token
+        new_refresh_token = security.create_refresh_token({
+            "sub": user.id,
+            "username": user.username
+        })
+
+        return {
+            "access_token": access_token,
+            "refresh_token": new_refresh_token,
+            "token_type": "bearer"
+        }
+
+    except security.JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="?¡æ??å·?°ä»¤??
+        )
+
+
+@app.get("/users/me", response_model=schemas.UserResponse)
+def get_current_user_info(
+    current_user: Dict[str, Any] = Depends(security.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    ?å??¶å??¨æ¶ä¿¡æ¯
+
+    - ?è¦æ?ä¾æ??ç? Bearer token
+    """
+    user = db.query(models.User).filter(models.User.id == current_user["id"]).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="?¨æ¶ä¸å???
+        )
+
+    return user
+
+
+@app.get("/users/", response_model=List[schemas.UserResponse])
+def list_users(
+    skip: int = 0,
+    limit: int = 100,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    ?åº??ç¨?¶ï??è¦ç®¡?å¡æ¬é?ï¼?
+    """
+    current_user = security.get_current_admin(security.get_current_user(authorization))
+    users = db.query(models.User).offset(skip).limit(limit).all()
+    return users
+
+
+@app.put("/users/{user_id}", response_model=schemas.UserResponse)
+def update_user(
+    user_id: int,
+    user_update: schemas.UserUpdate,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    ?´æ°?¨æ¶ï¼ç®¡?å¡?ç¨?¶èªå·±ï?
+    """
+    current_user = security.get_current_user(authorization)
+
+    # æª¢æ¥?¯å¦?ºç®¡?å¡?ä¿®?¹èªå·±ç?å¸³è?
+    if current_user["id"] != user_id and current_user["role"] != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="?¡æ??ä¿®?¹å¶ä»ç¨??
+        )
+
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="?¨æ¶ä¸å???
+        )
+
+    if user_update.email:
+        user.email = user_update.email
+
+    if user_update.role and current_user["role"] == "admin":
+        user.role = user_update.role
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@app.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(
+    user_id: int,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    ?ªé¤?¨æ¶ï¼ç®¡?å¡æ¬é?ï¼?
+    """
+    current_user = security.get_current_admin(security.get_current_user(authorization))
+
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="?¨æ¶ä¸å???
+        )
+
+    db.delete(user)
+    db.commit()
+    logger.info(f"?¨æ¶å·²åª?? {user.username}")
+    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
+
+
+# ==================== æªæ?ç®¡ç?ç«¯é? ====================
+
+@app.post("/files/", response_model=schemas.File, status_code=status.HTTP_201_CREATED)
+async def upload_file(
+    file: UploadFile = File(...),
+    auto_classify: bool = True,
+    auto_tag: bool = True,
+    current_user: Dict[str, Any] = Depends(security.get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """
+    ä¸å³æªæ?ç«¯é?
+
+    ?è½ï¼?
+    - ?ªå?è¨ç? SHA-256 ?ç?
+    - ?¥ç¸?æ?æ¡å·²å­å¨ï¼ç´?¥å??³æ¢?è??ï??»é?ï¼?
+    - ?¦å??²å?æªæ?ä¸¦å»ºç«è??åº«è¨é?
+    - ?¯é¸ï¼èª?å?é¡ä¸¦æ·»å?æ¨ç±¤
+
+    ?æ¸ï¼?
+    - file: ä¸å³?æ?æ¡?
+    - auto_classify: ?¯å¦?ªå??é?æªæ? (?è¨­: True)
+    - auto_tag: ?¯å¦?ªå?æ·»å?æ¨ç±¤ (?è¨­: True)
+
+    ?å³ï¼?
+    - 201: æªæ?ä¸å³?å? (?å»?å??å³?¢æ?æªæ?)
+    - 400: æªæ?é©è?å¤±æ?
+    - 403: ?¢ç?æ¨¡å?ä¸ç¡æ³ä???
+    - 500: ä¼ºæ??¨é¯èª?
+    """
+    # æª¢æ¥?¢ç??¨æ¶?¯å¦?è©¦ä¸å³
+    check_offline_write(current_user, "æªæ?ä¸å³")
+    try:
+        # é©è?æªæ?ä¸çºç©?
+        if not file or not file.filename:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="æªæ??ç¨±ä¸è½?ºç©º"
+            )
+
+        # æª¢æ¥æªæ?å¤§å?ä»¥é¿?è?å¤§æ?æ¡ä??³ï??¥å?ç«¯å²å­æ?è³æ??é?ï¼?
+        try:
+            await file.seek(0, os.SEEK_END)
+            size = await file.tell()
+            await file.seek(0)
+        except Exception:
+            size = None
+
+        if size is not None and size > MAX_UPLOAD_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"æªæ?å¤§å?è¶é?ä¸é? ({MAX_UPLOAD_SIZE} bytes)"
+            )
+
+        # è¨ç?æªæ??ç?ï¼æª¢?¥æ¯?¦å·²å­å¨?¸å?æªæ?
+        file_hash = await calculate_file_hash(file)
+        existing = db.query(models.File).filter(models.File.file_hash == file_hash).first()
+        if existing:
+            logger.info(f"æªæ?å·²å??¨ï??»é?ï¼? {file.filename} (ID: {existing.id})")
+            return existing
+
+        # ä½¿ç¨æ³¨å¥??storage å¯¦ä?ä¾å²å­æ?æ¡?
+        # ??storage ?¯æ´ä»?hash ?½å??å²å­æ¹æ³ï??ªå?ä½¿ç¨ä»¥é¿?æ??è?çª?
+        if hasattr(storage, "save_with_hash"):
+            storage_key = await storage.save_with_hash(file, file_hash)
+        else:
+            storage_key = await storage.save(file)
+        logger.info(f"æªæ?å·²å²å­? {file.filename} -> {storage_key}")
+
+        db_file = models.File(
+            filename=file.filename,
+            storage_key=storage_key,
+            file_hash=file_hash
+        )
+        db.add(db_file)
+        db.commit()
+        db.refresh(db_file)
+
+        # ?ªå??é??æ?ç±?
+        if auto_classify:
+            try:
+                classification_result = classification_service.classify_file(file.filename)
+                logger.info(
+                    f"æªæ??é?å®æ?: {file.filename} -> {classification_result.file_type} "
+                    f"(confidence: {classification_result.confidence:.2f})"
+                )
+
+                # ?ªå?æ·»å?æ¨ç±¤
+                if auto_tag and classification_result.suggested_tags:
+                    for tag_name in classification_result.suggested_tags:
+                        # ?¥æ¾?åµå»ºæ?ç±?
+                        tag = db.query(models.Tag).filter(models.Tag.name == tag_name).first()
+                        if not tag:
+                            tag = models.Tag(name=tag_name)
+                            db.add(tag)
+                            db.commit()
+                            db.refresh(tag)
+                            logger.info(f"?µå»º?°æ?ç±? {tag_name}")
+
+                        # æ·»å?æ¨ç±¤?°æ?æ¡ï??¿å??è?ï¼?
+                        if tag not in db_file.tags:
+                            db_file.tags.append(tag)
+
+                    db.commit()
+                    db.refresh(db_file)
+                    logger.info(f"å·²èª?æ·»??{len(classification_result.suggested_tags)} ?æ?ç±?)
+
+                # å°å?é¡å??¸æ?å­å²?ºè¨»è§?
+                if classification_result.metadata:
+                    annotation = models.Annotation(
+                        file_id=db_file.id,
+                        data={
+                            "classification": {
+                                "file_type": classification_result.file_type,
+                                "confidence": classification_result.confidence,
+                                "metadata": classification_result.metadata,
+                            }
+                        },
+                        source="auto"
+                    )
+                    db.add(annotation)
+                    db.commit()
+                    logger.info(f"å·²å??²å?é¡å??¸æ??ºè¨»è§?)
+
+            except Exception as e:
+                logger.error(f"?ªå??é?å¤±æ?: {str(e)}")
+                # ?é?å¤±æ?ä¸å½±?¿æ?æ¡ä???
+
+        return db_file
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"ä¸å³æªæ?å¤±æ?: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"æªæ?ä¸å³å¤±æ?: {str(e)}"
+        )
+
+
+@app.get("/files/", response_model=List[schemas.File])
+def read_files(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    """
+    ?å???æ?æ¡å?è¡?
+    - ?¯æ´?é?ï¼skip/limitï¼?
+    """
+    files = db.query(models.File).offset(skip).limit(limit).all()
+    return files
+
+
+@app.get("/files/search")
+def search_files(q: str | None = None, tag_id: int | None = None, skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
+    """
+    ?å?æªæ?ï¼æ¯??q (æªå?å­å?ä¸? ??tag_id ç¯©é¸ï¼å??³å??ç©ä»?{items,total,limit,offset}
+    """
+    query = db.query(models.File)
+    if q:
+        query = query.filter(models.File.filename.ilike(f"%{q}%"))
+    if tag_id:
+        query = query.join(models.File.tags).filter(models.Tag.id == tag_id)
+
+    total = query.count()
+    items = query.offset(skip).limit(limit).all()
+    return {"items": items, "total": total, "limit": limit, "offset": skip}
+
+
+@app.get("/files/{file_id}")
+def get_file(file_id: int, db: Session = Depends(get_db)):
+    file = db.query(models.File).filter(models.File.id == file_id).first()
+    if not file:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"æªæ? ID {file_id} ä¸å???)
+    return file
+
+
+@app.get("/files/{file_id}/download")
+def download_file(file_id: int, db: Session = Depends(get_db)):
+    file = db.query(models.File).filter(models.File.id == file_id).first()
+    if not file:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"æªæ? ID {file_id} ä¸å???)
+    path = file.storage_key
+    if not os.path.exists(path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="å¯¦é?æªæ?ä¸å???)
+    return FileResponse(path, media_type="application/octet-stream", filename=file.filename)
+
+
+@app.delete("/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_file(
+    file_id: int,
+    current_user: Dict[str, Any] = Depends(security.get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """?ªé¤æªæ?"""
+    # æª¢æ¥?¢ç??¨æ¶
+    check_offline_write(current_user, "æªæ??ªé¤")
+
+    file = db.query(models.File).filter(models.File.id == file_id).first()
+    if not file:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"æªæ? ID {file_id} ä¸å???)
+    # ?ªé¤å¯¦é?æªæ?ï¼è¥å­å¨ï¼ä¸¦?ªé¤ DB ç´??
+    try:
+        if file.storage_key:
+            storage.delete(file.storage_key)
+    except Exception:
+        logger.exception("?ªé¤å¯¦é?æªæ??ç¼?é¯èª?)
+    db.delete(file)
+    db.commit()
+    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
+
+
+@app.get("/tags/", response_model=List[schemas.Tag])
+def list_tags(db: Session = Depends(get_db)):
+    tags = db.query(models.Tag).all()
+    return tags
+
+
+@app.post("/files/{file_id}/tags", status_code=status.HTTP_200_OK)
+def add_tag_to_file_body(
+    file_id: int,
+    payload: Dict[str, int],
+    current_user: Dict[str, Any] = Depends(security.get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """
+    ?°å?æ¨ç±¤?è¯ï¼æ¥??body: {"tag_id": int}ï¼ï??¸å®¹?¼æ?ä»¶è???
+    """
+    check_offline_write(current_user, "æ¨ç±¤æ·»å?")
+
+    tag_id = payload.get("tag_id")
+    if tag_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="tag_id is required")
+
+    file = db.query(models.File).filter(models.File.id == file_id).first()
+    tag = db.query(models.Tag).filter(models.Tag.id == tag_id).first()
+
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"æªæ? ID {file_id} ä¸å???
+        )
+
+    if not tag:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"æ¨ç±¤ ID {tag_id} ä¸å???
+        )
+
+    if tag in file.tags:
+        logger.info(f"æ¨ç±¤å·²é??? æªæ? {file_id} å·²æ?æ¨ç±¤ {tag_id}")
+        return file
+
+    file.tags.append(tag)
+    db.commit()
+    db.refresh(file)
+    logger.info(f"æ¨ç±¤å·²æ·»?? æªæ? {file_id} -> æ¨ç±¤ {tag_id}")
+    return file
+
+
+@app.delete("/files/{file_id}/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_tag_from_file(
+    file_id: int,
+    tag_id: int,
+    current_user: Dict[str, Any] = Depends(security.get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    check_offline_write(current_user, "æ¨ç±¤ç§»é¤")
+
+    file = db.query(models.File).filter(models.File.id == file_id).first()
+    tag = db.query(models.Tag).filter(models.Tag.id == tag_id).first()
+    if not file or not tag:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="file or tag not found")
+    if tag in file.tags:
+        file.tags.remove(tag)
+        db.commit()
+    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
+
+
+@app.get("/files/{file_id}/conclusions/", response_model=List[schemas.Conclusion])
+def get_conclusions(file_id: int, db: Session = Depends(get_db)):
+    file = db.query(models.File).filter(models.File.id == file_id).first()
+    if not file:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"æªæ? ID {file_id} ä¸å???)
+    return db.query(models.Conclusion).filter(models.Conclusion.file_id == file_id).all()
+
+
+@app.put("/conclusions/{conclusion_id}")
+def update_conclusion(
+    conclusion_id: int,
+    payload: Dict[str, str],
+    current_user: Dict[str, Any] = Depends(security.get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    check_offline_write(current_user, "çµè??´æ°")
+
+    c = db.query(models.Conclusion).filter(models.Conclusion.id == conclusion_id).first()
+    if not c:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="conclusion not found")
+    content = payload.get("content")
+    if content is None or not content.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="content is required")
+    c.content = content.strip()
+    db.commit()
+    db.refresh(c)
+    return c
+
+
+@app.delete("/conclusions/{conclusion_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_conclusion(
+    conclusion_id: int,
+    current_user: Dict[str, Any] = Depends(security.get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    check_offline_write(current_user, "çµè??ªé¤")
+
+    c = db.query(models.Conclusion).filter(models.Conclusion.id == conclusion_id).first()
+    if not c:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="conclusion not found")
+    db.delete(c)
+    db.commit()
+    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
+
+
+@app.post("/tags/", response_model=schemas.Tag, status_code=status.HTTP_201_CREATED)
+def create_tag(
+    tag: schemas.TagCreate,
+    current_user: Dict[str, Any] = Depends(security.get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """
+    å»ºç?æ¨ç±¤ç«¯é?
+
+    ?è½ï¼?
+    - ?¥æ?ç±¤å?ç¨±å·²å­å¨ï¼å??³æ¢?æ?ç±¤ï??¿å??è?ï¼?
+    - ?¦å?å»ºç??°æ?ç±?
+
+    ?æ¸ï¼?
+    - tag.name: æ¨ç±¤?ç¨±ï¼å?å¡«ï?
+
+    ?å³ï¼?
+    - 201: æ¨ç±¤å»ºç??å?
+    - 400: æ¨ç±¤?ç¨±ä¸è½?ºç©º
+    - 403: ?¢ç?æ¨¡å?ä¸ç¡æ³å»ºç«æ?ç±?
+    """
+    check_offline_write(current_user, "æ¨ç±¤å»ºç?")
+    if not tag.name or not tag.name.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="æ¨ç±¤?ç¨±ä¸è½?ºç©º"
+        )
+
+    # æª¢æ¥æ¨ç±¤?¯å¦å·²å???
+    existing_tag = db.query(models.Tag).filter(models.Tag.name == tag.name.strip()).first()
+    if existing_tag:
+        logger.info(f"æ¨ç±¤å·²å??? {tag.name} (ID: {existing_tag.id})")
+        return existing_tag
+
+    db_tag = models.Tag(name=tag.name.strip())
+    db.add(db_tag)
+    db.commit()
+    db.refresh(db_tag)
+    logger.info(f"æ¨ç±¤å·²å»ºç«? {tag.name} (ID: {db_tag.id})")
+    return db_tag
+
+
+@app.post("/files/{file_id}/tags/{tag_id}", response_model=schemas.File, status_code=status.HTTP_200_OK)
+def add_tag_to_file(
+    file_id: int,
+    tag_id: int,
+    current_user: Dict[str, Any] = Depends(security.get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """
+    ?ºæ?æ¡æ·»? æ?ç±¤ç«¯é»?
+
+    ?è½ï¼?
+    - å»ºç?æªæ??æ?ç±¤ç?å¤å?å¤é???
+    - ?¿å??è?æ·»å??¸å?æ¨ç±¤
+
+    ?æ¸ï¼?
+    - file_id: æªæ? ID
+    - tag_id: æ¨ç±¤ ID
+
+    ?å³ï¼?
+    - 200: æ¨ç±¤æ·»å??å?
+    - 404: æªæ??æ?ç±¤ä?å­å¨
+    """
+    check_offline_write(current_user, "æ¨ç±¤æ·»å?")
+
+    file = db.query(models.File).filter(models.File.id == file_id).first()
+    tag = db.query(models.Tag).filter(models.Tag.id == tag_id).first()
+
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"æªæ? ID {file_id} ä¸å???
+        )
+
+    if not tag:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"æ¨ç±¤ ID {tag_id} ä¸å???
+        )
+
+    # ?¿å??è?æ·»å?
+    if tag in file.tags:
+        logger.info(f"æ¨ç±¤å·²é??? æªæ? {file_id} å·²æ?æ¨ç±¤ {tag_id}")
+        return file
+
+    file.tags.append(tag)
+    db.commit()
+    db.refresh(file)
+    logger.info(f"æ¨ç±¤å·²æ·»?? æªæ? {file_id} -> æ¨ç±¤ {tag_id}")
+    return file
+
+
+@app.post("/files/{file_id}/conclusions/", response_model=schemas.Conclusion, status_code=status.HTTP_201_CREATED)
+def create_conclusion(file_id: int, conclusion: schemas.ConclusionCreate, db: Session = Depends(get_db)):
+    """
+    ?ºæ?æ¡æ·»? ç?è«ç«¯é»?
+
+    ?è½ï¼?
+    - ?¨æ¼è¨é?å¯¦é?çµæ??è?å¯æ??æ?çµè?
+    - ?¯æ´ Markdown ?¼å??·æ?å­?
+
+    ?æ¸ï¼?
+    - file_id: æªæ? ID
+    - conclusion.content: çµè??§å®¹
+
+    ?å³ï¼?
+    - 201: çµè??°å??å?
+    - 400: çµè??§å®¹ä¸è½?ºç©º
+    - 404: æªæ?ä¸å???
+    """
+    if not conclusion.content or not conclusion.content.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="çµè??§å®¹ä¸è½?ºç©º"
+        )
+
+    file = db.query(models.File).filter(models.File.id == file_id).first()
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"æªæ? ID {file_id} ä¸å???
+        )
+
+    db_conclusion = models.Conclusion(
+        file_id=file_id,
+        content=conclusion.content.strip()
+    )
+    db.add(db_conclusion)
+    db.commit()
+    db.refresh(db_conclusion)
+    logger.info(f"çµè?å·²æ°å¢? æªæ? {file_id} (çµè? ID: {db_conclusion.id})")
+    return db_conclusion
+
+
+# --- Annotation endpoints ---
+@app.post("/files/{file_id}/annotations/", response_model=schemas.Annotation, status_code=status.HTTP_201_CREATED)
+def add_annotation(file_id: int, ann: AnnotationCreate, db: Session = Depends(get_db)):
+    """
+    ?ºæ?æ¡æ·»? è¨»è§?«¯é»?
+
+    ?è½ï¼?
+    - ?¯æ´ä»»æ? JSON çµæ?ï¼data æ¬ä?ï¼?
+    - ?¯æ?è¨ä?æºï?manual/auto/importedï¼?
+    - ?é? annotation_provider ?ç?ï¼ä¾¿?¼æªä¾æ´å±ï?å¦é?ç«¯æ??ï?
+
+    ?æ¸ï¼?
+    - file_id: æªæ? ID
+    - ann.data: æ¨è¨»?§å®¹ (JSON)
+    - ann.source: æ¨è¨»ä¾æ?
+
+    ?å³ï¼?
+    - 201: æ¨è¨»?°å??å?
+    - 400: æ¨è¨»?§å®¹?ºç©º
+    - 404: æªæ?ä¸å???
+    """
+    try:
+        # é©è?æªæ??¯å¦å­å¨
+        file = db.query(models.File).filter(models.File.id == file_id).first()
+        if not file:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"æªæ? ID {file_id} ä¸å???
+            )
+
+        # é©è?æ¨è¨»è³æ?ä¸çºç©?
+        if not ann.data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="æ¨è¨»?§å®¹ä¸è½?ºç©º"
+            )
+
+        # ?é??ä??å??ä??ç?ï¼èä??¯ç´?¥å¯« DB
+        # ?æ¨£?ªä??ä??å??ï??è?ç¨å?ç¢¼å¹¾ä¹ä??¨æ¹
+        result = annotation_provider.add_annotation(db, file_id, ann.data, ann.source)
+        logger.info(f"æ¨è¨»å·²æ°å¢? æªæ? {file_id} (ä¾æ?: {ann.source})")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"?°å?æ¨è¨»å¤±æ?: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"?°å?æ¨è¨»å¤±æ?: {str(e)}"
+        )
+
+
+@app.get("/files/{file_id}/annotations/", response_model=List[schemas.Annotation])
+def get_annotations(file_id: int, db: Session = Depends(get_db)):
+    """
+    ?å?æªæ??æ??è¨»è§?«¯é»?
+
+    ?è½ï¼?
+    - ?é? annotation_provider ?¥è©¢
+
+    ?æ¸ï¼?
+    - file_id: æªæ? ID
+
+    ?å³ï¼?
+    - 200: è¨»è§£?è¡¨ (?¥ç¡?çºç©ºé£??
+    - 404: æªæ?ä¸å???
+    """
+    # æª¢æ¥æªæ??¯å¦å­å¨
+    file = db.query(models.File).filter(models.File.id == file_id).first()
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"æªæ? ID {file_id} ä¸å???
+        )
+
+    return annotation_provider.get_annotations(db, file_id)
+
+
+# --- ç³»çµ±ç¶­è­·ç«¯é? ---
+@app.post("/admin/sync-files/", response_model=dict, status_code=status.HTTP_200_OK)
+def sync_files(db: Session = Depends(get_db)):
+    """
+    ?æ­¥è³æ?åº«è?å¯¦é?æªæ?ç³»çµ±
+
+    ?è½ï¼?
+    - ?æ?è³æ?åº«ä¸­?æ??æ?æ¡è???
+    - æª¢æ¥å°æ??å¯¦é«æ?æ¡æ¯?¦å???
+    - ?ªé¤å­¤ç?è¨é?ï¼å¯¦é«æ?æ¡ä?å­å¨?è??ï?
+    - æª¢æ¸¬?°å??å¯¦é«æ?æ¡ï?ä¸å¨è³æ?åº«ç?æªæ?ï¼å¯?¸ï?
+
+    ?å³ï¼?
+    - deleted_files: ?ªé¤?å­¤ç«è??æ¸
+    - orphaned_ids: è¢«åª?¤ç?æªæ? ID ?è¡¨
+    - status: "success" ??"error"
+    - message: è©³ç´°è¨æ¯
+    """
+    try:
+        # ?¥è©¢??æ?æ¡è???
+        all_files = db.query(models.File).all()
+        orphaned_ids = []
+
+        print(f"[SYNC] ?å??æ­¥ï¼æ???{len(all_files)} ç­è???..")
+
+        for file_record in all_files:
+            storage_key = file_record.storage_key
+
+            # æª¢æ¥å¯¦é?æªæ??¯å¦å­å¨
+            if not storage_key or not os.path.exists(storage_key):
+                logger.warning(f"[SYNC] ?¼ç¾å­¤ç?è¨é?ï¼ID {file_record.id}, filename={file_record.filename}")
+                orphaned_ids.append(file_record.id)
+
+                # ?ªé¤?¸é??æ?ç±¤é??¯ãè¨»è§?ç?è«?
+                db.query(file_tags).filter(file_tags.c.file_id == file_record.id).delete()
+                db.query(models.Annotation).filter(models.Annotation.file_id == file_record.id).delete()
+                db.query(models.Conclusion).filter(models.Conclusion.file_id == file_record.id).delete()
+
+                # ?ªé¤æªæ?è¨é?
+                db.delete(file_record)
+
+        # ?äº¤è®æ´
+        if orphaned_ids:
+            db.commit()
+            logger.info(f"[SYNC] å·²åª??{len(orphaned_ids)} ç­å­¤ç«è???)
+
+        return {
+            "status": "success",
+            "message": f"?æ­¥å®æ?ï¼åª??{len(orphaned_ids)} ç­å­¤ç«è???,
+            "deleted_files": len(orphaned_ids),
+            "orphaned_ids": orphaned_ids
+        }
+
+    except Exception as e:
+        logger.error(f"[SYNC] ?æ­¥å¤±æ?: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"?æ­¥å¤±æ?: {str(e)}",
+            "deleted_files": 0,
+            "orphaned_ids": []
+        }
+
+
+@app.get("/admin/file-status/", response_model=dict, status_code=status.HTTP_200_OK)
+def get_file_status(db: Session = Depends(get_db)):
+    """
+    ?å?æªæ?ç³»çµ±???
+
+    ?å³ï¼?
+    - total_db_records: è³æ?åº«ä¸­?æ?æ¡è??æ¸
+    - valid_files: å¯¦é?æªæ?å­å¨?è??æ¸
+    - orphaned_files: å­¤ç?è¨é??¸ï?å¯¦é?æªæ??ºå¤±ï¼?
+    - orphaned_details: å­¤ç?è¨é??è©³ç´°è?è¨?
+    """
+    try:
+        all_files = db.query(models.File).all()
+        orphaned_details = []
+        valid_count = 0
+
+        for file_record in all_files:
+            storage_key = file_record.storage_key
+            if storage_key and os.path.exists(storage_key):
+                valid_count += 1
+            else:
+                orphaned_details.append({
+                    "id": file_record.id,
+                    "filename": file_record.filename,
+                    "storage_key": storage_key,
+                    "created_at": file_record.created_at.isoformat() if file_record.created_at else None
+                })
+
+        return {
+            "total_db_records": len(all_files),
+            "valid_files": valid_count,
+            "orphaned_files": len(orphaned_details),
+            "orphaned_details": orphaned_details
+        }
+
+    except Exception as e:
+        logger.error(f"[STATUS] ?¡æ??å???? {str(e)}")
+        return {
+            "total_db_records": 0,
+            "valid_files": 0,
+            "orphaned_files": 0,
+            "orphaned_details": [],
+            "error": str(e)
+        }
+
+
+# --- ?¹é??ä?ç«¯é? (v0.2+) ---
+
+@app.post("/files/batch-delete", status_code=status.HTTP_200_OK)
+def batch_delete_files(file_ids: List[int] = None, db: Session = Depends(get_db)):
+    """
+    ?¹é??ªé¤æªæ?
+
+    ?å??½ã?
+    - ä¸æ¬¡åª?¤å??æ?æ¡?
+    - ?ªå??ªé¤?è¯?æ?ç±¤ãç?è«ãæ?è¨?
+    - ?ªé¤å¯¦é?æªæ?
+
+    ?å??¸ã?
+    file_ids: æªæ? ID ?è¡¨
+
+    ?å??³ã?
+    - deleted_count: å·²åª?¤ç?æªæ???
+    - failed_ids: ?ªé¤å¤±æ??æ?æ¡?ID
+    """
+    if not file_ids:
+        file_ids = []
+
+    deleted_count = 0
+    failed_ids = []
+
+    try:
+        for file_id in file_ids:
+            try:
+                file = db.query(models.File).filter(models.File.id == file_id).first()
+                if not file:
+                    failed_ids.append(file_id)
+                    continue
+
+                # ?ªé¤å¯¦é?æªæ?
+                try:
+                    if file.storage_key and os.path.exists(file.storage_key):
+                        os.remove(file.storage_key)
+                except Exception as e:
+                    logger.warning(f"?¡æ??ªé¤å¯¦é?æªæ? {file.storage_key}: {e}")
+
+                # ?ªé¤è³æ?åº«è???
+                db.delete(file)
+                deleted_count += 1
+
+            except Exception as e:
+                logger.error(f"?ªé¤æªæ? {file_id} å¤±æ?: {e}")
+                failed_ids.append(file_id)
+
+        db.commit()
+        logger.info(f"?¹é??ªé¤å®æ?: {deleted_count} ?å?, {len(failed_ids)} å¤±æ?")
+
+        return {
+            "deleted_count": deleted_count,
+            "failed_ids": failed_ids,
+            "status": "success" if len(failed_ids) == 0 else "partial"
+        }
+
+    except Exception as e:
+        logger.error(f"?¹é??ªé¤å¤±æ?: {e}")
+        return {
+            "deleted_count": 0,
+            "failed_ids": file_ids,
+            "status": "error",
+            "error": str(e)
+        }
+
+
+@app.post("/tags/batch-create", status_code=status.HTTP_201_CREATED)
+def batch_create_tags(tag_names: List[str] = None, db: Session = Depends(get_db)):
+    """
+    ?¹é?å»ºç?æ¨ç±¤
+
+    ?å??½ã?
+    - ä¸æ¬¡å»ºç«å??æ?ç±?
+    - ?ªå?è·³é?å·²å??¨ç?æ¨ç±¤
+    - è¿å?å·²å»ºç«å?å·²å??¨ç?æ¨ç±¤?è¡¨
+
+    ?å??¸ã?
+    tag_names: æ¨ç±¤?ç¨±?è¡¨
+
+    ?å??³ã?
+    - created_count: ?°å»ºç«ç?æ¨ç±¤??
+    - existing_count: å·²å??¨ç?æ¨ç±¤??
+    - created_tags: ?°å»ºç«ç?æ¨ç±¤
+    - existing_tags: å·²å??¨ç?æ¨ç±¤
+    """
+    if not tag_names:
+        tag_names = []
+
+    created_tags = []
+    existing_tags = []
+
+    try:
+        for tag_name in tag_names:
+            tag_name = tag_name.strip()
+            if not tag_name:
+                continue
+
+            # æª¢æ¥æ¨ç±¤?¯å¦å·²å???
+            existing_tag = db.query(models.Tag).filter(models.Tag.name == tag_name).first()
+            if existing_tag:
+                existing_tags.append({
+                    "id": existing_tag.id,
+                    "name": existing_tag.name
+                })
+            else:
+                # å»ºç??°æ?ç±?
+                new_tag = models.Tag(name=tag_name)
+                db.add(new_tag)
+                db.flush()
+                created_tags.append({
+                    "id": new_tag.id,
+                    "name": new_tag.name
+                })
+
+        db.commit()
+        logger.info(f"?¹é?å»ºç?æ¨ç±¤å®æ?: {len(created_tags)} ?°å»º, {len(existing_tags)} å·²å???)
+
+        return {
+            "created_count": len(created_tags),
+            "existing_count": len(existing_tags),
+            "created_tags": created_tags,
+            "existing_tags": existing_tags,
+            "status": "success"
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"?¹é?å»ºç?æ¨ç±¤å¤±æ?: {e}")
+        return {
+            "created_count": 0,
+            "existing_count": len(existing_tags),
+            "created_tags": [],
+            "existing_tags": existing_tags,
+            "status": "error",
+            "error": str(e)
+        }
+
+
+class FileBatchUploadRequest(BaseModel):
+    """?¹é?ä¸å³è«æ?çµæ?"""
+    pass  # ?±å??¨å?æªæ?è¡¨å®?ä?
+
+
+@app.post("/files/batch-upload", status_code=status.HTTP_201_CREATED)
+async def batch_upload_files(
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db)
+):
+    """
+    ?¹é?ä¸å³æªæ?
+
+    ?å??½ã?
+    - ä¸æ¬¡ä??³å??æ?æ¡?
+    - ?ªå??»é?ï¼ç¸?å§å®¹ç?æªæ??ªå²å­ä?ä»½ï?
+    - è¿å?å·²ä??³å?å·²å??¨ç?æªæ??è¡¨
+
+    ?å??¸ã?
+    files: æªæ??è¡¨ï¼multipart/form-dataï¼?
+
+    ?å??³ã?
+    - uploaded_count: ?°ä??³ç?æªæ???
+    - duplicated_count: ?è??æ?æ¡æ¸
+    - uploaded_files: ?°ä??³ç?æªæ?ä¿¡æ¯
+    - duplicated_files: ?è??æ?æ¡ä¿¡??
+    """
+    uploaded_files = []
+    duplicated_files = []
+
+    try:
+        for file in files:
+            try:
+                # è¨ç?æªæ? hash
+                file_hash = await calculate_file_hash(file)
+
+                # æª¢æ¥æªæ??¯å¦å·²å???
+                existing_file = db.query(models.File).filter(
+                    models.File.file_hash == file_hash
+                ).first()
+
+                if existing_file:
+                    duplicated_files.append({
+                        "id": existing_file.id,
+                        "filename": existing_file.filename,
+                        "file_hash": existing_file.file_hash,
+                        "created_at": existing_file.created_at.isoformat() if existing_file.created_at else None
+                    })
+                    continue
+
+                # ?²å?æªæ?
+                await file.seek(0)
+                storage_key = await storage.save(file_hash, file)
+
+                # å»ºç?è³æ?åº«è???
+                db_file = models.File(
+                    filename=file.filename,
+                    storage_key=storage_key,
+                    file_hash=file_hash
+                )
+                db.add(db_file)
+                db.flush()
+
+                uploaded_files.append({
+                    "id": db_file.id,
+                    "filename": db_file.filename,
+                    "file_hash": db_file.file_hash,
+                    "created_at": db_file.created_at.isoformat() if db_file.created_at else None
+                })
+
+            except Exception as e:
+                logger.error(f"ä¸å³æªæ? {file.filename} å¤±æ?: {e}")
+
+        db.commit()
+        logger.info(f"?¹é?ä¸å³å®æ?: {len(uploaded_files)} ?°ä??? {len(duplicated_files)} ?è?")
+
+        return {
+            "uploaded_count": len(uploaded_files),
+            "duplicated_count": len(duplicated_files),
+            "uploaded_files": uploaded_files,
+            "duplicated_files": duplicated_files,
+            "status": "success"
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"?¹é?ä¸å³å¤±æ?: {e}")
+        return {
+            "uploaded_count": 0,
+            "duplicated_count": len(duplicated_files),
+            "uploaded_files": [],
+            "duplicated_files": duplicated_files,
+            "status": "error",
+            "error": str(e)
+        }
+
+
+@app.post("/reasoning-chains", tags=["?¨ç???], status_code=status.HTTP_201_CREATED)
+def create_reasoning_chain(
+    chain_data: Dict[str, Any] = Body(...),
+    db: Session = Depends(get_db),
+    current_user = Depends(security.get_current_user)
+):
+    """
+    å»ºç??°ç??¨ç???
+
+    ?æ¸:
+      - name: ?¨ç??å?ç¨?
+      - description: ?¨ç??æ?è¿?
+      - nodes: ç¯é»é?ç½®é£??
+    """
+    try:
+        service = ReasoningService(db, storage=storage)
+        chain = service.create_chain(
+            name=chain_data.get("name"),
+            description=chain_data.get("description", ""),
+            nodes=chain_data.get("nodes", []),
+            created_by_id=current_user["id"],
+            is_template=chain_data.get("is_template", False)
+        )
+        logger.info(f"å»ºç??¨ç??? {chain.id}")
+        return {
+            "id": str(chain.id),
+            "name": chain.name,
+            "description": chain.description,
+            "is_template": chain.is_template,
+            "created_at": chain.created_at.isoformat() if chain.created_at else None,
+            "updated_at": chain.updated_at.isoformat() if chain.updated_at else None,
+        }
+    except Exception as e:
+        logger.error(f"å»ºç??¨ç??å¤±?? {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/reasoning-chains", tags=["?¨ç???])
+def list_reasoning_chains(
+    skip: int = 0,
+    limit: int = 10,
+    db: Session = Depends(get_db),
+    current_user = Depends(security.get_current_user)
+):
+    """?å??¨ç??å?è¡?""
+    try:
+        service = ReasoningService(db, storage=storage)
+        chains = service.list_chains(skip=skip, limit=limit)
+        return [
+            {
+                "id": str(c.id),
+                "name": c.name,
+                "description": c.description,
+                "is_template": c.is_template,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in chains
+        ]
+    except Exception as e:
+        logger.error(f"?è¡¨?¨ç??å¤±?? {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/reasoning-chains/{chain_id}", tags=["?¨ç???])
+def get_reasoning_chain(
+    chain_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(security.get_current_user)
+):
+    """?å??¨ç??è©³ç´°è?è¨?""
+    try:
+        service = ReasoningService(db, storage=storage)
+        chain = service.get_chain(UUID(chain_id))
+        if not chain:
+            raise HTTPException(status_code=404, detail="?¨ç??ä?å­å¨")
+        return {
+            "id": str(chain.id),
+            "name": chain.name,
+            "description": chain.description,
+            "nodes": chain.nodes,
+            "is_template": chain.is_template,
+            "created_at": chain.created_at.isoformat() if chain.created_at else None,
+            "updated_at": chain.updated_at.isoformat() if chain.updated_at else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"?å??¨ç??å¤±?? {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/reasoning-chains/{chain_id}", tags=["?¨ç???])
+def update_reasoning_chain(
+    chain_id: str,
+    update_data: Dict[str, Any] = Body(...),
+    db: Session = Depends(get_db),
+    current_user = Depends(security.get_current_user)
+):
+    """?´æ°?¨ç???""
+    try:
+        service = ReasoningService(db, storage=storage)
+        chain = service.update_chain(
+            chain_id=UUID(chain_id),
+            name=update_data.get("name"),
+            description=update_data.get("description"),
+            nodes=update_data.get("nodes")
+        )
+        if not chain:
+            raise HTTPException(status_code=404, detail="?¨ç??ä?å­å¨")
+        logger.info(f"?´æ°?¨ç??? {chain_id}")
+        return {
+            "id": str(chain.id),
+            "name": chain.name,
+            "description": chain.description,
+            "updated_at": chain.updated_at.isoformat() if chain.updated_at else None,
+        }
+    except Exception as e:
+        logger.error(f"?´æ°?¨ç??å¤±?? {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/reasoning-chains/{chain_id}", tags=["?¨ç???], status_code=status.HTTP_204_NO_CONTENT)
+def delete_reasoning_chain(
+    chain_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(security.get_current_user)
+):
+    """?ªé¤?¨ç???""
+    try:
+        service = ReasoningService(db, storage=storage)
+        service.delete_chain(UUID(chain_id))
+        logger.info(f"?ªé¤?¨ç??? {chain_id}")
+    except Exception as e:
+        logger.error(f"?ªé¤?¨ç??å¤±?? {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/reasoning-chains/{chain_id}/execute", tags=["?¨ç???])
+def execute_reasoning_chain(
+    chain_id: str,
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    db: Session = Depends(get_db),
+    current_user = Depends(security.get_current_user)
+):
+    """?·è??¨ç???""
+    try:
+        service = ReasoningService(db, storage=storage)
+        input_data = payload.get("input_data") if isinstance(payload, dict) and "input_data" in payload else payload
+        if input_data is None:
+            input_data = {}
+        model_name = payload.get("model_name") if isinstance(payload, dict) else None
+        tool_name = payload.get("tool_name") if isinstance(payload, dict) else None
+        execution = service.execute_chain(
+            UUID(chain_id),
+            input_data,
+            user_id=current_user["id"],
+            model_name=model_name,
+            tool_name=tool_name,
+        )
+        logger.info(f"?·è??¨ç??? {chain_id}, ?·è?ID: {execution.id}")
+        return {
+            "execution_id": str(execution.id),
+            "chain_id": str(execution.chain_id),
+            "status": execution.status,
+            "user_id": execution.user_id,
+            "model_name": execution.model_name,
+            "tool_name": execution.tool_name,
+            "started_at": execution.started_at.isoformat() if execution.started_at else None,
+        }
+    except Exception as e:
+        logger.error(f"?·è??¨ç??å¤±?? {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/executions/{execution_id}", tags=["?¨ç???])
+def get_execution_result(
+    execution_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(security.get_current_user)
+):
+    """?å??¨ç??å·è¡ç???""
+    try:
+        service = ReasoningService(db, storage=storage)
+        execution = service.get_execution(UUID(execution_id))
+        if not execution:
+            raise HTTPException(status_code=404, detail="?·è?è¨é?ä¸å???)
+
+        def normalize_json(value: Any) -> Any:
+            if value is None:
+                return {}
+            if isinstance(value, (dict, list)):
+                return value
+            if isinstance(value, str):
+                import json
+                try:
+                    return json.loads(value)
+                except Exception:
+                    return {}
+            return {}
+
+        def normalize_error(value: Any) -> Any:
+            if value is None:
+                return None
+            if isinstance(value, (dict, list)):
+                return value
+            if isinstance(value, str):
+                import json
+                try:
+                    return json.loads(value)
+                except Exception:
+                    return value
+            return value
+
+        results = normalize_json(execution.results)
+        input_data = normalize_json(execution.input_data)
+
+        return {
+            "execution_id": str(execution.id),
+            "chain_id": str(execution.chain_id),
+            "status": execution.status,
+            "user_id": execution.user_id,
+            "model_name": execution.model_name,
+            "tool_name": execution.tool_name,
+            "input_data": input_data,
+            "results": results,
+            "error": normalize_error(execution.error_log),
+            "started_at": execution.started_at.isoformat() if execution.started_at else None,
+            "completed_at": execution.completed_at.isoformat() if execution.completed_at else None,
+            "execution_time_ms": execution.execution_time_ms,
+        }
+    except Exception as e:
+        logger.error(f"?å??·è?çµæ?å¤±æ?: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ============================================================================
+# ?³æ¬ (Script) ç«¯é? - v0.3 ?°å?
+# ============================================================================
+
+@app.post("/scripts", tags=["?³æ¬"], status_code=status.HTTP_201_CREATED)
+def create_script(
+    script_data: Dict[str, Any] = Body(...),
+    db: Session = Depends(get_db),
+    current_user = Depends(security.get_current_user)
+):
+    """å»ºç??°è³??""
+    try:
+        service = ScriptService(db)
+        script = service.create_script(
+            name=script_data.get("name"),
+            content=script_data.get("content"),
+            category=script_data.get("category", "general"),
+            parameters=script_data.get("parameters", {}),
+            created_by_id=current_user["id"],
+            version=script_data.get("version", "1.0.0")
+        )
+        logger.info(f"å»ºç??³æ¬: {script.id}")
+        return {
+            "id": str(script.id),
+            "name": script.name,
+            "category": script.category,
+            "created_at": script.created_at.isoformat() if script.created_at else None,
+        }
+    except Exception as e:
+        logger.error(f"å»ºç??³æ¬å¤±æ?: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/scripts", tags=["?³æ¬"])
+def list_scripts(
+    skip: int = 0,
+    limit: int = 10,
+    category: str = None,
+    db: Session = Depends(get_db),
+    current_user = Depends(security.get_current_user)
+):
+    """?å??³æ¬?è¡¨"""
+    try:
+        service = ScriptService(db)
+        scripts = service.list_scripts(skip=skip, limit=limit, category=category)
+
+        return [
+            {
+                "id": str(s.id),
+                "name": s.name,
+                "category": s.category,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+            for s in scripts
+        ]
+    except Exception as e:
+        logger.error(f"?è¡¨?³æ¬å¤±æ?: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/scripts/{script_id}", tags=["?³æ¬"])
+def get_script(
+    script_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(security.get_current_user)
+):
+    """?å??³æ¬è©³ç´°è³è?"""
+    try:
+        service = ScriptService(db)
+        script = service.get_script(UUID(script_id))
+        if not script:
+            raise HTTPException(status_code=404, detail="?³æ¬ä¸å???)
+
+        return {
+            "id": str(script.id),
+            "name": script.name,
+            "content": script.content,
+            "category": script.category,
+            "version": script.version,
+            "parameters": script.parameters,
+            "created_at": script.created_at.isoformat() if script.created_at else None,
+            "updated_at": script.updated_at.isoformat() if script.updated_at else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"?å??³æ¬å¤±æ?: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/scripts/{script_id}", tags=["?³æ¬"])
+def update_script(
+    script_id: str,
+    update_data: Dict[str, Any] = Body(...),
+    db: Session = Depends(get_db),
+    current_user = Depends(security.get_current_user)
+):
+    """?´æ°?³æ¬"""
+    try:
+        service = ScriptService(db)
+        script = service.update_script(
+            script_id=UUID(script_id),
+            name=update_data.get("name"),
+            content=update_data.get("content"),
+            category=update_data.get("category"),
+            parameters=update_data.get("parameters"),
+            version=update_data.get("version")
+        )
+        if not script:
+            raise HTTPException(status_code=404, detail="?³æ¬ä¸å???)
+        logger.info(f"?´æ°?³æ¬: {script_id}")
+        return {
+            "id": str(script.id),
+            "name": script.name,
+            "updated_at": script.updated_at.isoformat() if script.updated_at else None,
+        }
+    except Exception as e:
+        logger.error(f"?´æ°?³æ¬å¤±æ?: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/scripts/{script_id}", tags=["?³æ¬"], status_code=status.HTTP_204_NO_CONTENT)
+def delete_script(
+    script_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(security.get_current_user)
+):
+    """?ªé¤?³æ¬"""
+    try:
+        service = ScriptService(db)
+        service.delete_script(UUID(script_id))
+        logger.info(f"?ªé¤?³æ¬: {script_id}")
+    except Exception as e:
+        logger.error(f"?ªé¤?³æ¬å¤±æ?: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/scripts/{script_id}/execute", tags=["?³æ¬"])
+def execute_script(
+    script_id: str,
+    input_data: Dict[str, Any],
+    db: Session = Depends(get_db),
+    current_user = Depends(security.get_current_user)
+):
+    """?·è??³æ¬"""
+    try:
+        service = ScriptService(db)
+        execution = service.execute_script(UUID(script_id), input_data)
+        logger.info(f"?·è??³æ¬: {script_id}, ?·è?ID: {execution.id}")
+        return {
+            "execution_id": str(execution.id),
+            "script_id": str(execution.script_id),
+            "status": execution.status,
+            "started_at": execution.started_at.isoformat() if execution.started_at else None,
+        }
+    except Exception as e:
+        logger.error(f"?·è??³æ¬å¤±æ?: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ==================== æªæ??ªå??é?ç«¯é? ====================
+
+@app.post("/files/{file_id}/classify", response_model=schemas.FileClassificationResponse, tags=["æªæ?ç®¡ç?"])
+def classify_file(
+    file_id: int,
+    auto_tag: bool = True,
+    auto_create_tags: bool = True,
+    db: Session = Depends(get_db)
+):
+    """
+    ?å?è§¸ç¼æªæ??é?
+
+    ?è½ï¼?
+    - å°æ?å®æ?æ¡é²è??ªå??é?
+    - ?å??æ¸??
+    - å»ºè­°æ¨ç±¤
+    - ?¯é¸ï¼èª?åµå»ºå?æ·»å?æ¨ç±¤
+
+    ?æ¸ï¼?
+    - file_id: æªæ?ID
+    - auto_tag: ?¯å¦?ªå?æ·»å?æ¨ç±¤ (?è¨­: True)
+    - auto_create_tags: ?¯å¦?ªå??µå»ºä¸å??¨ç?æ¨ç±¤ (?è¨­: True)
+
+    ?å³ï¼?
+    - 200: ?é??å?
+    - 404: æªæ?ä¸å???
+    - 500: ?é?å¤±æ?
+    """
+    try:
+        # ?¥è©¢æªæ?
+        db_file = db.query(models.File).filter(models.File.id == file_id).first()
+        if not db_file:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"æªæ? ID {file_id} ä¸å???
+            )
+
+        # ?²è??é?
+        classification_result = classification_service.classify_file(db_file.filename)
+        logger.info(
+            f"æªæ??é?å®æ?: {db_file.filename} -> {classification_result.file_type} "
+            f"(confidence: {classification_result.confidence:.2f})"
+        )
+
+        tags_created = []
+        tags_added = []
+
+        # ?ªå?æ·»å?æ¨ç±¤
+        if auto_tag and classification_result.suggested_tags:
+            for tag_name in classification_result.suggested_tags:
+                # ?¥æ¾?åµå»ºæ?ç±?
+                tag = db.query(models.Tag).filter(models.Tag.name == tag_name).first()
+                if not tag and auto_create_tags:
+                    tag = models.Tag(name=tag_name)
+                    db.add(tag)
+                    db.commit()
+                    db.refresh(tag)
+                    tags_created.append(tag_name)
+                    logger.info(f"?µå»º?°æ?ç±? {tag_name}")
+
+                # æ·»å?æ¨ç±¤?°æ?æ¡ï??¿å??è?ï¼?
+                if tag and tag not in db_file.tags:
+                    db_file.tags.append(tag)
+                    tags_added.append(tag_name)
+
+            db.commit()
+            db.refresh(db_file)
+            logger.info(f"å·²èª?æ·»??{len(tags_added)} ?æ?ç±?)
+
+        # ?´æ°?åµå»ºå?é¡è¨»è§?
+        annotation = db.query(models.Annotation).filter(
+            models.Annotation.file_id == file_id,
+            models.Annotation.source == "auto"
+        ).first()
+
+        annotation_data = {
+            "classification": {
+                "file_type": classification_result.file_type,
+                "confidence": classification_result.confidence,
+                "metadata": classification_result.metadata,
+            }
+        }
+
+        if annotation:
+            annotation.data = annotation_data
+        else:
+            annotation = models.Annotation(
+                file_id=file_id,
+                data=annotation_data,
+                source="auto"
+            )
+            db.add(annotation)
+
+        db.commit()
+        logger.info("å·²æ´?°å?é¡è¨»è§?)
+
+        return schemas.FileClassificationResponse(
+            file_id=file_id,
+            filename=db_file.filename,
+            classification=classification_result,
+            tags_created=tags_created,
+            tags_added=tags_added
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"?é?æªæ?å¤±æ?: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"?é?æªæ?å¤±æ?: {str(e)}"
+        )
+
+
+@app.post("/files/classify/batch", response_model=schemas.BatchClassificationResponse, tags=["æªæ?ç®¡ç?"])
+def batch_classify_files(
+    request: schemas.BatchClassificationRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    ?¹é??é?æªæ?
+
+    ?è½ï¼?
+    - å°å??æ?æ¡é²è??¹é??é?
+    - ?ªå?æ·»å?æ¨ç±¤
+    - è¿å?çµ±è?ä¿¡æ¯
+
+    ?æ¸ï¼?
+    - request: ?¹é??é?è«æ?ï¼å??«æ?æ¡ID?è¡¨?é¸?ï?
+
+    ?å³ï¼?
+    - 200: ?¹é??é?å®æ?
+    - 400: è«æ??¼å??¯èª¤
+    - 500: ?é?å¤±æ?
+    """
+    try:
+        results = []
+        errors = []
+        successful = 0
+        failed = 0
+
+        for file_id in request.file_ids:
+            try:
+                # ?¥è©¢æªæ?
+                db_file = db.query(models.File).filter(models.File.id == file_id).first()
+                if not db_file:
+                    errors.append({
+                        "file_id": file_id,
+                        "error": f"æªæ? ID {file_id} ä¸å???
+                    })
+                    failed += 1
+                    continue
+
+                # ?²è??é?
+                classification_result = classification_service.classify_file(db_file.filename)
+
+                tags_created = []
+                tags_added = []
+
+                # ?ªå?æ·»å?æ¨ç±¤
+                if request.auto_tag and classification_result.suggested_tags:
+                    for tag_name in classification_result.suggested_tags:
+                        # ?¥æ¾?åµå»ºæ?ç±?
+                        tag = db.query(models.Tag).filter(models.Tag.name == tag_name).first()
+                        if not tag and request.auto_create_tags:
+                            tag = models.Tag(name=tag_name)
+                            db.add(tag)
+                            db.commit()
+                            db.refresh(tag)
+                            tags_created.append(tag_name)
+
+                        # æ·»å?æ¨ç±¤?°æ?æ¡ï??¿å??è?ï¼?
+                        if tag and tag not in db_file.tags:
+                            db_file.tags.append(tag)
+                            tags_added.append(tag_name)
+
+                    db.commit()
+                    db.refresh(db_file)
+
+                # ?´æ°?åµå»ºå?é¡è¨»è§?
+                annotation = db.query(models.Annotation).filter(
+                    models.Annotation.file_id == file_id,
+                    models.Annotation.source == "auto"
+                ).first()
+
+                annotation_data = {
+                    "classification": {
+                        "file_type": classification_result.file_type,
+                        "confidence": classification_result.confidence,
+                        "metadata": classification_result.metadata,
+                    }
+                }
+
+                if annotation:
+                    annotation.data = annotation_data
+                else:
+                    annotation = models.Annotation(
+                        file_id=file_id,
+                        data=annotation_data,
+                        source="auto"
+                    )
+                    db.add(annotation)
+
+                db.commit()
+
+                results.append(schemas.FileClassificationResponse(
+                    file_id=file_id,
+                    filename=db_file.filename,
+                    classification=classification_result,
+                    tags_created=tags_created,
+                    tags_added=tags_added
+                ))
+
+                successful += 1
+                logger.info(f"?é?æªæ??å?: {db_file.filename} (ID: {file_id})")
+
+            except Exception as e:
+                errors.append({
+                    "file_id": file_id,
+                    "error": str(e)
+                })
+                failed += 1
+                logger.error(f"?é?æªæ?å¤±æ? (ID: {file_id}): {str(e)}")
+
+        return schemas.BatchClassificationResponse(
+            total=len(request.file_ids),
+            successful=successful,
+            failed=failed,
+            results=results,
+            errors=errors
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"?¹é??é?å¤±æ?: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"?¹é??é?å¤±æ?: {str(e)}"
+        )
+
+
+@app.get("/classification/stats", response_model=schemas.ClassificationStatsResponse, tags=["æªæ?ç®¡ç?"])
+def get_classification_stats(db: Session = Depends(get_db)):
+    """
+    ?²å?æªæ??é?çµ±è?ä¿¡æ¯
+
+    ?è½ï¼?
+    - çµ±è?å·²å?é¡æ?æ¡ç?é¡å??ä?
+    - è¨ç?å¹³å?ç½®ä¿¡åº?
+    - çµ±è??ªå?é¡æ?æ¡æ¸??
+
+    ?å³ï¼?
+    - 200: çµ±è?ä¿¡æ¯
+    """
+    try:
+        # ?¥è©¢??å??«å?é¡è¨»è§??æªæ?
+        annotations = db.query(models.Annotation).filter(
+            models.Annotation.source == "auto"
+        ).all()
+
+        if not annotations:
+            return schemas.ClassificationStatsResponse(
+                total=0,
+                by_type={},
+                avg_confidence=0.0,
+                unknown_count=0,
+                unknown_rate=0.0
+            )
+
+        type_counts = {}
+        total_confidence = 0.0
+        unknown_count = 0
+
+        for annotation in annotations:
+            classification_data = annotation.data.get("classification", {})
+            file_type = classification_data.get("file_type", "Unknown")
+            confidence = classification_data.get("confidence", 0.0)
+
+            # çµ±è?é¡å??ä?
+            type_counts[file_type] = type_counts.get(file_type, 0) + 1
+
+            # ç´¯è?ç½®ä¿¡åº?
+            total_confidence += confidence
+
+            # çµ±è??ªç¥é¡å?
+            if file_type == "Unknown":
+                unknown_count += 1
+
+        total = len(annotations)
+
+        return schemas.ClassificationStatsResponse(
+            total=total,
+            by_type=type_counts,
+            avg_confidence=total_confidence / total if total > 0 else 0.0,
+            unknown_count=unknown_count,
+            unknown_rate=unknown_count / total if total > 0 else 0.0
+        )
+
+    except Exception as e:
+        logger.error(f"?²å?çµ±è?ä¿¡æ¯å¤±æ?: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"?²å?çµ±è?ä¿¡æ¯å¤±æ?: {str(e)}"
+        )
+
+
+@app.get("/classification/supported-types", tags=["æªæ?ç®¡ç?"])
+def get_supported_file_types():
+    """
+    ?²å??¯æ´?æ?æ¡é???
+
+    ?å³ï¼?
+    - 200: ?¯æ´?æ?æ¡é??å?å°æ??æ´å±å?
+    """
+    try:
+        supported_types = classification_service.get_supported_types()
+        return {
+            "supported_types": supported_types,
+            "total_types": len(supported_types)
+        }
+    except Exception as e:
+        logger.error(f"?²å??¯æ´é¡å?å¤±æ?: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"?²å??¯æ´é¡å?å¤±æ?: {str(e)}"
+        )
