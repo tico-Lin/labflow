@@ -1,17 +1,25 @@
-# Security and Anti-Plagiarism Policy
+# Security Policy
 
-## Unauthorized Access Prevention
+## Public Open-Source Project
 
-### Repository Privacy
+- This is a **PUBLIC open-source repository** under GPL v3
+- Contributions from the community are welcome
+- Please follow the CONTRIBUTING.md guidelines
 
-- This is a **PRIVATE repository**
-- Access is restricted to authorized collaborators only
-- Unauthorized access or use is strictly prohibited
+## Reporting Security Vulnerabilities
 
-### IP Protection Measures
+If you discover a security vulnerability in LabFlow, please report it responsibly:
+
+1. **Do NOT** open a public GitHub issue
+2. Email: [@tico-Lin](https://github.com/tico-Lin)
+3. Include: Description, impact, affected versions, and proposed fixes
+4. Allow time for a patch before public disclosure
+
+## Code Attribution & IP Protection
 
 - All commits are timestamped and attributed via GitHub
 - Full version history is maintained
+- Contributors are properly credited
 - Modifications are tracked and attributable
 
 ---
