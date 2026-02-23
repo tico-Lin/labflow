@@ -25,6 +25,7 @@ import ReactFlow, { Background, Controls, MiniMap } from 'reactflow';
 import 'reactflow/dist/style.css';
 import TopNav from '../components/TopNav.jsx';
 import { api } from '../api/client.js';
+import { useTranslation } from '../i18n.jsx';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -39,6 +40,7 @@ const NODE_TYPE_COLORS = {
 
 export default function TemplateLibrary() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [previewVisible, setPreviewVisible] = useState(false);
@@ -51,7 +53,7 @@ export default function TemplateLibrary() {
       const templateList = await api.listTemplates();
       setTemplates(templateList);
     } catch (error) {
-      message.error(error.message || '載入模板失敗');
+      message.error(error.message || t('template.load_failed'));
     } finally {
       setLoading(false);
     }
@@ -65,10 +67,10 @@ export default function TemplateLibrary() {
   const handleCreateFromTemplate = async templateId => {
     try {
       const newChain = await api.createChainFromTemplate(templateId);
-      message.success('已從模板創建新推理鏈');
+      message.success(t('template.created_from'));
       navigate(`/flow/${newChain.id}`);
     } catch (error) {
-      message.error(error.message || '創建失敗');
+      message.error(error.message || t('template.delete_failed'));
     }
   };
 
@@ -76,10 +78,10 @@ export default function TemplateLibrary() {
   const handleDeleteTemplate = async templateId => {
     try {
       await api.deleteChain(templateId);
-      message.success('模板已刪除');
+      message.success(t('template.delete_success'));
       fetchTemplates();
     } catch (error) {
-      message.error(error.message || '刪除失敗');
+      message.error(error.message || t('template.delete_failed'));
     }
   };
 
@@ -90,14 +92,14 @@ export default function TemplateLibrary() {
       setSelectedTemplate(fullTemplate);
       setPreviewVisible(true);
     } catch (error) {
-      message.error(error.message || '載入模板詳情失敗');
+      message.error(error.message || t('template.load_details_failed'));
     }
   };
 
   // 渲染預覽的流程圖
   const renderPreviewFlow = () => {
     if (!selectedTemplate || !selectedTemplate.nodes) {
-      return <Empty description="沒有節點數據" />;
+      return <Empty description={t('template.no_nodes')} />;
     }
 
     const nodes = selectedTemplate.nodes.map((node, index) => ({
@@ -164,7 +166,9 @@ export default function TemplateLibrary() {
       <div className="app-shell">
         <TopNav />
         <div style={{ textAlign: 'center', padding: '100px 0' }}>
-          <Spin size="large" tip="載入模板中..." />
+          <Spin size="large" spinning={true}>
+            <div style={{ padding: '50px' }}>{t('template.loading')}</div>
+          </Spin>
         </div>
       </div>
     );
@@ -175,29 +179,29 @@ export default function TemplateLibrary() {
       <TopNav />
       <div className="hero">
         <Title level={2} className="fade-in">
-          推理鏈模板庫
+          {t('template.library_title')}
         </Title>
         <Text type="secondary" className="fade-in delay-1">
-          重用預設的推理鏈模板快速構建分析工作流
+          {t('template.library_subtitle')}
         </Text>
       </div>
 
       <div className="panel pad fade-in delay-2" style={{ maxWidth: 1400, margin: '24px auto' }}>
         <Space style={{ marginBottom: 24, width: '100%', justifyContent: 'space-between' }}>
-          <Text strong>找到 {templates.length} 個模板</Text>
+          <Text strong>{t('template.found_count', { count: templates.length })}</Text>
           <Button
             type="primary"
             icon={<PlusOutlined />}
             onClick={() => navigate('/flow/new?template=true')}
           >
-            創建新模板
+            {t('template.create_new')}
           </Button>
         </Space>
 
         {templates.length === 0 ? (
-          <Empty description="還沒有任何模板" image={Empty.PRESENTED_IMAGE_SIMPLE}>
+          <Empty description={t('template.no_templates')} image={Empty.PRESENTED_IMAGE_SIMPLE}>
             <Button type="primary" onClick={() => navigate('/flow/new?template=true')}>
-              創建第一個模板
+              {t('template.create_first')}
             </Button>
           </Empty>
         ) : (
@@ -216,30 +220,30 @@ export default function TemplateLibrary() {
                         icon={<EyeOutlined />}
                         onClick={() => handlePreviewTemplate(template)}
                       >
-                        預覽
+                        {t('template.preview')}
                       </Button>,
                       <Button
                         type="link"
                         icon={<CopyOutlined />}
                         onClick={() => handleCreateFromTemplate(template.id)}
                       >
-                        使用
+                        {t('template.use')}
                       </Button>,
                       <Button
                         type="link"
                         icon={<EditOutlined />}
                         onClick={() => navigate(`/flow/${template.id}`)}
                       >
-                        編輯
+                        {t('common.edit')}
                       </Button>,
                       <Popconfirm
-                        title="確定刪除這個模板嗎？"
+                        title={t('template.delete_confirm')}
                         onConfirm={() => handleDeleteTemplate(template.id)}
-                        okText="確定"
-                        cancelText="取消"
+                        okText={t('common.confirm')}
+                        cancelText={t('common.cancel')}
                       >
                         <Button type="link" danger icon={<DeleteOutlined />}>
-                          刪除
+                          {t('common.delete')}
                         </Button>
                       </Popconfirm>,
                     ]}
@@ -259,13 +263,13 @@ export default function TemplateLibrary() {
                             ellipsis={{ rows: 2 }}
                             style={{ marginBottom: 12, minHeight: 44 }}
                           >
-                            {template.description || '無描述'}
+                            {template.description || t('template.no_description')}
                           </Paragraph>
                           <Space size="small" wrap>
-                            <Tag>{nodeCount} 個節點</Tag>
+                            <Tag>{t('template.node_count', { count: nodeCount })}</Tag>
                             {Object.entries(nodeTypes).map(([type, count]) => (
                               <Tag key={type} color={NODE_TYPE_COLORS[type]}>
-                                {type}: {count}
+                                {t('template.node_type_count', { type, count })}
                               </Tag>
                             ))}
                           </Space>
@@ -284,7 +288,7 @@ export default function TemplateLibrary() {
       <Modal
         title={
           <Space>
-            <Tag color="blue">模板</Tag>
+            <Tag color="blue">{t('template.tag_template')}</Tag>
             <span>{selectedTemplate?.name}</span>
           </Space>
         }
@@ -293,7 +297,7 @@ export default function TemplateLibrary() {
         width={900}
         footer={[
           <Button key="close" onClick={() => setPreviewVisible(false)}>
-            關閉
+            {t('common.close')}
           </Button>,
           <Button
             key="edit"
@@ -303,7 +307,7 @@ export default function TemplateLibrary() {
               navigate(`/flow/${selectedTemplate.id}`);
             }}
           >
-            編輯
+            {t('common.edit')}
           </Button>,
           <Button
             key="use"
@@ -314,17 +318,17 @@ export default function TemplateLibrary() {
               handleCreateFromTemplate(selectedTemplate.id);
             }}
           >
-            使用此模板
+            {t('template.use_this')}
           </Button>,
         ]}
       >
         {selectedTemplate && (
           <div>
-            <Paragraph>{selectedTemplate.description || '無描述'}</Paragraph>
-            <Title level={5}>工作流程圖</Title>
+            <Paragraph>{selectedTemplate.description || t('template.no_description')}</Paragraph>
+            <Title level={5}>{t('template.workflow_diagram')}</Title>
             {renderPreviewFlow()}
             <Title level={5} style={{ marginTop: 24 }}>
-              節點列表
+              {t('template.node_list')}
             </Title>
             <Space direction="vertical" style={{ width: '100%' }}>
               {selectedTemplate.nodes?.map((node, index) => (
@@ -337,7 +341,7 @@ export default function TemplateLibrary() {
                     </Space>
                     {node.inputs && node.inputs.length > 0 && (
                       <Text type="secondary" style={{ fontSize: 12 }}>
-                        輸入: {node.inputs.join(', ')}
+                        {t('template.inputs_label')} {node.inputs.join(', ')}
                       </Text>
                     )}
                   </Space>

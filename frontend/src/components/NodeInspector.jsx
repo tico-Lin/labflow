@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Input, Select, Typography, Form, Space, Card, Collapse } from 'antd';
+import { useTranslation } from '../i18n.jsx';
 
 const { Text } = Typography;
 const { Panel } = Collapse;
@@ -251,6 +252,7 @@ function NodeConfigForm({ nodeType, config, onChange }) {
 }
 
 export default function NodeInspector({ node, onChange }) {
+  const { t } = useTranslation();
   const [rawConfig, setRawConfig] = useState(() =>
     JSON.stringify(node?.data?.config || {}, null, 2)
   );
@@ -290,19 +292,19 @@ export default function NodeInspector({ node, onChange }) {
   const nodeType = useMemo(() => node?.data?.nodeType || 'data_input', [node]);
 
   if (!node) {
-    return <Text type="secondary">Select a node to edit its settings.</Text>;
+    return <Text type="secondary">{t('common.select') || 'Select a node to edit its settings.'}</Text>;
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <Card size="small" title="Basic Info">
+      <Card size="small" title={t('reasoning.node.basic_info') || 'Basic Info'}>
         <Space direction="vertical" style={{ width: '100%' }}>
           <div>
-            <Text type="secondary">Node ID</Text>
+            <Text type="secondary">{t('reasoning.node.id') || 'Node ID'}</Text>
             <Input value={node.id} disabled />
           </div>
           <div>
-            <Text type="secondary">Node Label</Text>
+            <Text type="secondary">{t('reasoning.node.label') || 'Node Label'}</Text>
             <Input
               value={node.data?.label}
               onChange={event =>
@@ -314,7 +316,7 @@ export default function NodeInspector({ node, onChange }) {
             />
           </div>
           <div>
-            <Text type="secondary">Node Type</Text>
+            <Text type="secondary">{t('reasoning.node.type') || 'Node Type'}</Text>
             <Select
               options={NODE_TYPES}
               value={nodeType}
@@ -330,24 +332,25 @@ export default function NodeInspector({ node, onChange }) {
         </Space>
       </Card>
 
-      <Card size="small" title="Configuration">
+      <Card size="small" title={t('reasoning.node.configuration') || 'Configuration'}>
         <Collapse
           defaultActiveKey={['form']}
           items={[
             {
               key: 'form',
-              label: 'Visual Editor',
+              label: t('reasoning.node.visual_editor') || 'Visual Editor',
               children: (
                 <NodeConfigForm
                   nodeType={nodeType}
                   config={node.data?.config || {}}
                   onChange={handleConfigChange}
+                  t={t}
                 />
               ),
             },
             {
               key: 'json',
-              label: 'JSON Editor (Advanced)',
+              label: t('reasoning.node.json_editor') || 'JSON Editor (Advanced)',
               children: (
                 <Space direction="vertical" style={{ width: '100%' }}>
                   <Input.TextArea
@@ -356,7 +359,7 @@ export default function NodeInspector({ node, onChange }) {
                     onChange={event => syncConfig(event.target.value)}
                   />
                   <Button onClick={() => syncConfig(rawConfig)} type="default" size="small">
-                    Apply JSON config
+                    {t('reasoning.node.apply_json') || 'Apply JSON config'}
                   </Button>
                 </Space>
               ),

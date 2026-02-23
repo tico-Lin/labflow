@@ -1,3 +1,4 @@
+/* 深色主题（默认） */
 :root {
   --bg-0: #0b1f24;
   --bg-1: #0f2b33;
@@ -16,6 +17,25 @@
     'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
     'Courier New', monospace;
   --sans: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
+  --text-shadow: none;
+}
+
+/* 浅色主题 */
+:root[data-theme='light'] {
+  --bg-0: #ffffff;
+  --bg-1: #f8f8f8;
+  --bg-2: #f0f0f0;
+  --ink-0: #1a1a1a;
+  --ink-1: #333333;
+  --ink-2: #666666;
+  --accent-0: #ff9800;
+  --accent-1: #ffb74d;
+  --accent-2: #e65100;
+  --panel: #ffffff;
+  --panel-2: #f5f5f5;
+  --border: rgba(0, 0, 0, 0.12);
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.12);
+  --text-shadow: 0 1px 2px rgba(255, 255, 255, 0.3);
 }
 
 * {
@@ -27,12 +47,35 @@ body {
   margin: 0;
   padding: 0;
   font-family: var(--sans);
-  background:
-    radial-gradient(circle at top left, rgba(243, 155, 47, 0.2), transparent 40%),
-    radial-gradient(circle at 20% 30%, rgba(19, 55, 66, 0.9), transparent 60%),
-    linear-gradient(130deg, var(--bg-0), var(--bg-2));
   color: var(--ink-0);
   min-height: 100%;
+  background: var(--bg-0);
+}
+
+/* 全局文字選中樣式 - 深色主題 */
+::selection {
+  background: rgba(243, 155, 47, 0.35);
+  color: var(--ink-0);
+}
+
+::-moz-selection {
+  background: rgba(243, 155, 47, 0.35);
+  color: var(--ink-0);
+}
+
+/* 全局文字選中樣式 - 淺色主題 */
+:root[data-theme='light'] ::selection {
+  background: rgba(255, 152, 0, 0.25);
+  color: #1a1a1a;
+}
+
+:root[data-theme='light'] ::-moz-selection {
+  background: rgba(255, 152, 0, 0.25);
+  color: #1a1a1a;
+}
+
+:root[data-theme='light'] body {
+  background: var(--bg-0);
 }
 
 #root {
@@ -43,6 +86,8 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  background: var(--bg-0) !important;
+  color: var(--ink-0) !important;
 }
 
 .app-topbar {
@@ -53,6 +98,7 @@ body {
   background: rgba(15, 43, 51, 0.7);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
+  color: var(--ink-0);
 }
 
 .app-title {
@@ -68,7 +114,7 @@ body {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  color: var(--ink-2);
+  color: var(--ink-1);
 }
 
 .app-nav {
@@ -100,20 +146,23 @@ body {
 
 .hero {
   padding: 48px 32px 24px;
+  background: transparent;
+  color: var(--ink-0);
 }
 
 .hero h1 {
   margin: 0 0 8px 0;
   font-size: clamp(28px, 4vw, 40px);
+  color: var(--ink-0);
 }
 
 .hero p {
   margin: 0;
-  color: var(--ink-2);
+  color: var(--ink-1);
 }
 
 .panel {
-  background: linear-gradient(160deg, rgba(20, 42, 51, 0.95), rgba(15, 35, 43, 0.9));
+  background: linear-gradient(160deg, var(--panel-2), var(--panel));
   border: 1px solid var(--border);
   border-radius: 16px;
   box-shadow: var(--shadow);
@@ -180,7 +229,7 @@ body {
 }
 
 .tool-card {
-  background: linear-gradient(160deg, rgba(20, 42, 51, 0.95), rgba(15, 35, 43, 0.9));
+  background: linear-gradient(160deg, var(--panel-2), var(--panel));
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 18px;
@@ -188,6 +237,18 @@ body {
   flex-direction: column;
   gap: 12px;
   min-height: 240px;
+  color: var(--ink-0) !important;
+}
+
+.tool-card h3,
+.tool-card h4 {
+  color: var(--ink-0) !important;
+}
+
+.tool-card p,
+.tool-card span,
+.tool-card div {
+  color: var(--ink-1) !important;
 }
 
 .tool-meta {
@@ -229,7 +290,7 @@ body {
   border-radius: 999px;
   background: rgba(13, 32, 38, 0.8);
   border: 1px solid var(--border);
-  color: var(--ink-2);
+  color: var(--ink-1);
   font-size: 12px;
 }
 
@@ -275,6 +336,7 @@ body {
   overflow: hidden;
   border: 1px solid var(--border);
   margin-bottom: 16px;
+  position: relative;
 }
 
 .flow-sidebar {
@@ -298,6 +360,17 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--ink-1);
+}
+
+:root[data-theme='light'] .code-block {
+  background: rgba(240, 240, 240, 0.9);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #333333;
+}
+
+:root[data-theme='light'] .code-block-inline {
+  background: rgba(240, 240, 240, 0.9);
+  color: #333333;
 }
 
 .code-block-inline {
@@ -328,15 +401,15 @@ body {
 .ant-input-affix-wrapper,
 .ant-select-selector,
 .ant-input-textarea {
-  background: rgba(13, 32, 38, 0.8);
-  border-color: var(--border);
-  color: var(--ink-0);
+  background: rgba(13, 32, 38, 0.8) !important;
+  border-color: var(--border) !important;
+  color: var(--ink-0) !important;
 }
 
 .ant-input::placeholder,
 .ant-input-affix-wrapper input::placeholder,
 .ant-input-textarea textarea::placeholder {
-  color: rgba(233, 245, 242, 0.5);
+  color: rgba(233, 245, 242, 0.5) !important;
 }
 
 .ant-input:focus,
@@ -350,66 +423,136 @@ body {
 
 .ant-input-affix-wrapper input,
 .ant-input-textarea textarea {
-  color: var(--ink-0);
-  background: transparent;
+  color: var(--ink-0) !important;
+  background: transparent !important;
 }
 
+/* Input/Select 選中區域 */
 .ant-input::selection,
 .ant-input-affix-wrapper input::selection,
+.ant-select-selection-item::selection,
 .ant-input-textarea textarea::selection {
-  background: rgba(243, 155, 47, 0.4);
-  color: var(--ink-0);
+  background: rgba(243, 155, 47, 0.4) !important;
+  color: var(--ink-0) !important;
 }
 
 .ant-table {
-  background: transparent;
+  background: transparent !important;
 }
 
 .ant-table-thead > tr > th {
-  background: rgba(15, 35, 43, 0.85);
-  color: var(--ink-1);
-  border-bottom: 1px solid var(--border);
+  background: rgba(15, 35, 43, 0.85) !important;
+  color: var(--ink-1) !important;
+  border-bottom: 1px solid var(--border) !important;
 }
 
 .ant-table-tbody > tr > td {
-  background: rgba(20, 42, 51, 0.7);
-  color: var(--ink-1);
-  border-bottom: 1px solid var(--border);
+  background: rgba(20, 42, 51, 0.7) !important;
+  color: var(--ink-1) !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+.ant-table-tbody > tr:hover > td {
+  background: rgba(25, 47, 57, 0.85) !important;
+  color: var(--ink-0) !important;
+}
+
+/* Table 文字選中 */
+.ant-table-tbody > tr > td::selection {
+  background: rgba(243, 155, 47, 0.35) !important;
+  color: var(--ink-0) !important;
 }
 
 .ant-card {
-  background: rgba(20, 42, 51, 0.95);
-  border-color: var(--border);
+  background: rgba(20, 42, 51, 0.95) !important;
+  border-color: var(--border) !important;
 }
 
 .ant-card-head {
-  background: rgba(15, 35, 43, 0.85);
-  border-color: var(--border);
-  color: var(--ink-0);
+  background: rgba(15, 35, 43, 0.85) !important;
+ border-color: var(--border) !important;
+  color: var(--ink-0) !important;
 }
 
 .ant-card-body {
-  color: var(--ink-1);
+  color: var(--ink-1) !important;
+}
+
+.ant-card-body strong,
+.ant-card-body .ant-text-strong {
+  color: var(--ink-0) !important;
+}
+
+.ant-card-body .ant-space-item {
+  color: var(--ink-1) !important;
+}
+
+.ant-card-body .ant-space-item strong {
+  color: var(--ink-0) !important;
+}
+
+/* Collapse 組件樣式 */
+.ant-collapse {
+  background: rgba(20, 42, 51, 0.95) !important;
+  border-color: var(--border) !important;
+}
+
+.ant-collapse-item {
+  border-color: var(--border) !important;
+}
+
+.ant-collapse-header {
+  background: rgba(15, 35, 43, 0.85) !important;
+  color: var(--ink-0) !important;
+}
+
+.ant-collapse-content {
+  background: rgba(20, 42, 51, 0.7) !important;
+  color: var(--ink-1) !important;
+  border-color: var(--border) !important;
+}
+
+.ant-collapse-content-box {
+  color: var(--ink-1) !important;
 }
 
 .ant-descriptions-item-label {
-  color: var(--ink-2);
+  color: var(--ink-1) !important;
 }
 
 .ant-descriptions-item-content {
-  color: var(--ink-0);
+  color: var(--ink-0) !important;
+}
+
+.ant-descriptions-item {
+  color: var(--ink-0) !important;
 }
 
 .ant-timeline-item-content {
-  color: var(--ink-1);
+  color: var(--ink-1) !important;
+}
+
+.ant-timeline-item-title {
+  color: var(--ink-0) !important;
+}
+
+.ant-timeline-item-dot {
+  background: rgba(20, 42, 51, 0.9) !important;
+  border-color: var(--accent-0) !important;
 }
 
 .ant-tabs-tab {
-  color: var(--ink-2);
+  color: var(--ink-1) !important;
 }
 
 .ant-tabs-tab-active {
-  color: var(--ink-0);
+  color: var(--ink-0) !important;
+}
+
+/* Typography strong/bold text */
+.ant-typography strong,
+.ant-text strong {
+  color: var(--ink-0) !important;
 }
 
 .ant-tabs-ink-bar {
@@ -453,3 +596,743 @@ body {
   margin-left: 4px;
   margin-right: 8px;
 }
+
+/* 確保標題顏色正確 - 僅針對主要區域 */
+.app-shell h1,
+.app-shell h2,
+.app-shell h3,
+.app-shell h4,
+.app-shell h5,
+.app-shell h6 {
+  color: var(--ink-0);
+  font-weight: 700;
+}
+
+.hero h1,
+.hero p {
+  color: var(--ink-0);
+}
+
+.hero p {
+  color: var(--ink-1);
+}
+
+/* 確保按鈕和交互元件可見 */
+.ant-btn {
+  color: var(--ink-0) !important;
+}
+
+.ant-btn-default {
+  background: rgba(15, 43, 51, 0.7) !important;
+  border-color: var(--border) !important;
+}
+
+.ant-btn-text {
+  background: transparent !important;
+}
+
+/* 改進輸入框的可見性 - 已在 Ant Design 區塊處理 */
+
+/* 改進按鈕樣式 */
+.ant-table {
+  background: var(--panel);
+  color: var(--ink-0);
+}
+
+.ant-table-thead > tr > th {
+  background: var(--panel-2);
+  color: var(--ink-0);
+  border-color: var(--border);
+}
+
+.ant-table-tbody > tr > td {
+  border-color: var(--border);
+  color: var(--ink-0);
+}
+
+/* 改进卡片可见性 */
+.ant-card {
+  background: var(--panel) !important;
+  border-color: var(--border) !important;
+  color: var(--ink-0) !important;
+}
+
+.ant-card-head {
+  background: var(--panel-2) !important;
+  border-color: var(--border) !important;
+  color: var(--ink-0) !important;
+}
+
+.ant-card-extra {
+  color: var(--ink-0) !important;
+}
+
+.ant-card > * {
+  color: inherit !important;
+}
+
+/* 確保卡片內的 secondary 文本可見 */
+.ant-card .ant-typography-secondary {
+  color: var(--ink-2) !important;
+}
+
+/* 改进标签的对比度 */
+.ant-tag {
+  color: var(--ink-0) !important;
+  background: rgba(15, 43, 51, 0.85) !important;
+  border-color: var(--border) !important;
+}
+
+/* 确保所有输入相关元素的文本颜色正确 */
+input {
+  color: var(--ink-0) !important;
+}
+
+textarea {
+  color: var(--ink-0) !important;
+}
+
+pre {
+  color: var(--ink-1) !important;
+  background: rgba(11, 31, 36, 0.7) !important;
+}
+
+code {
+  color: var(--ink-0) !important;
+  background: rgba(11, 31, 36, 0.5) !important;
+}
+
+/* 確保主要容器的文字可見 */
+.panel,
+.panel * {
+  color: inherit;
+}
+
+.panel h1,
+.panel h2,
+.panel h3,
+.panel h4 {
+  color: var(--ink-0) !important;
+}
+
+/* 確保頁面內容區域文字可見 */
+.hero,
+.auth-shell,
+.flow-shell,
+.viewer-shell,
+.tools-shell,
+.run-shell {
+  color: var(--ink-0);
+}
+
+.hero *,
+.auth-shell *,
+.flow-shell *,
+.viewer-shell *,
+.tools-shell *,
+.run-shell * {
+  color: inherit;
+}
+
+/* 確保 pill 標籤文字可見 */
+.pill {
+  color: var(--ink-1) !important;
+}
+
+/* 確保 Modal、Message、Notification 等元件的深色主題配色 */
+.ant-modal-content {
+  background: rgba(15, 35, 43, 0.98) !important;
+  color: var(--ink-0) !important;
+}
+
+.ant-modal-header {
+  background: rgba(20, 42, 51, 0.95) !important;
+  color: var(--ink-0) !important;
+  border-bottom-color: var(--border) !important;
+}
+
+.ant-modal-body {
+  color: var(--ink-1) !important;
+}
+
+.ant-modal-footer {
+  background: rgba(15, 35, 43, 0.95) !important;
+  border-top-color: var(--border) !important;
+}
+
+.ant-empty-description {
+  color: var(--ink-2) !important;
+}
+
+.ant-message-notice-content {
+  background: rgba(15, 35, 43, 0.95) !important;
+  color: var(--ink-0) !important;
+}
+
+.ant-notification-notice {
+  background: rgba(15, 35, 43, 0.98) !important;
+  color: var(--ink-0) !important;
+}
+
+.ant-select-item-option-content {
+  color: var(--ink-0) !important;
+}
+
+.ant-select-selection-item {
+  color: var(--ink-0) !important;
+}
+
+/* 確保所有文字元件可見 */
+.ant-typography {
+  color: var(--ink-1) !important;
+}
+
+/* 修復 secondary 文本在深色主題下的可見性 */
+.ant-typography-secondary {
+  color: var(--ink-2) !important;
+  opacity: 1 !important;
+}
+
+/* 確保 Space、Collapse 等容器內的 secondary 文本可見 */
+.ant-space .ant-typography-secondary,
+.ant-collapse .ant-typography-secondary,
+.ant-form .ant-typography-secondary {
+  color: var(--ink-2) !important;
+}
+
+.ant-divider-inner-text {
+  color: var(--ink-1) !important;
+}
+
+/* 浅色主题下的特殊调整 */
+:root[data-theme='light'] .app-shell {
+  background: #f5f5f5 !important;
+}
+
+:root[data-theme='light'] .app-topbar {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(12px);
+  border-bottom-color: rgba(0, 0, 0, 0.1);
+  color: #1a1a1a;
+}
+
+:root[data-theme='light'] .app-title {
+  color: #1a1a1a;
+}
+
+:root[data-theme='light'] .app-title span {
+  color: #666666;
+}
+
+:root[data-theme='light'] .app-nav a {
+  color: #666666;
+}
+
+:root[data-theme='light'] .app-nav a:hover,
+:root[data-theme='light'] .app-nav a.active {
+  color: #1a1a1a;
+}
+
+:root[data-theme='light'] .hero {
+  background: transparent;
+  color: #1a1a1a;
+}
+
+:root[data-theme='light'] .hero h1 {
+  color: #1a1a1a;
+}
+
+:root[data-theme='light'] .hero p {
+  color: #666666;
+}
+
+:root[data-theme='light'] .panel {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.98), rgba(245, 245, 245, 0.95));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme='light'] .tool-card {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.98), rgba(250, 250, 250, 0.95));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* 淺色主題 - 標籤配色 */
+:root[data-theme='light'] .ant-tag {
+  color: #1a1a1a !important;
+  background: rgba(240, 240, 240, 0.95) !important;
+  border-color: rgba(0, 0, 0, 0.15) !important;
+}
+
+/* 淺色主題 - tool-card 文字顏色 */
+:root[data-theme='light'] .tool-card h3,
+:root[data-theme='light'] .tool-card h4 {
+  color: #1a1a1a !important;
+}
+
+:root[data-theme='light'] .tool-card p,
+:root[data-theme='light'] .tool-card span,
+:root[data-theme='light'] .tool-card div {
+  color: #333333 !important;
+}
+
+/* 淺色主題 - pill 標籤 */
+:root[data-theme='light'] .pill {
+  color: #666666 !important;
+  background: rgba(240, 240, 240, 0.9) !important;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+/* 淺色主題 - 按鈕配色 */
+:root[data-theme='light'] .ant-btn {
+  color: #1a1a1a !important;
+}
+
+:root[data-theme='light'] .ant-btn-default {
+  background: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.15) !important;
+  color: #1a1a1a !important;
+}
+
+:root[data-theme='light'] .ant-btn-default:hover {
+  background: #fafafa !important;
+  border-color: #ff9800 !important;
+  color: #1a1a1a !important;
+}
+
+:root[data-theme='light'] .ant-btn-text {
+  color: #1a1a1a !important;
+}
+
+:root[data-theme='light'] .ant-btn-primary {
+  background: #ff9800 !important;
+  border-color: #ff9800 !important;
+  color: #ffffff !important;
+}
+
+:root[data-theme='light'] .ant-btn-primary:hover {
+  background: #ffb74d !important;
+  border-color: #ffb74d !important;
+}
+
+/* 淺色主題 - 語言切換器配色 */
+:root[data-theme='light'] .language-switcher {
+  background: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.15) !important;
+  color: #1a1a1a !important;
+}
+
+:root[data-theme='light'] .language-switcher:hover {
+  background: #fafafa !important;
+  border-color: #ff9800 !important;
+}
+
+:root[data-theme='light'] .language-switcher:focus {
+  border-color: #ff9800 !important;
+  box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.2) !important;
+}
+
+:root[data-theme='light'] .language-switcher option {
+  background: #ffffff !important;
+  color: #1a1a1a !important;
+}
+
+/* 淺色主題 - Input/Select 配色 */
+:root[data-theme='light'] .ant-input,
+:root[data-theme='light'] .ant-input-affix-wrapper,
+:root[data-theme='light'] .ant-select-selector,
+:root[data-theme='light'] .ant-input-textarea {
+  background: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.15) !important;
+  color: #1a1a1a !important;
+}
+
+:root[data-theme='light'] .ant-input::placeholder,
+:root[data-theme='light'] .ant-input-affix-wrapper input::placeholder,
+:root[data-theme='light'] .ant-input-textarea textarea::placeholder {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme='light'] .ant-input:focus,
+:root[data-theme='light'] .ant-input-affix-wrapper-focused,
+:root[data-theme='light'] .ant-select-focused .ant-select-selector,
+:root[data-theme='light'] .ant-input-textarea:focus {
+  background: #ffffff;
+  border-color: #ff9800;
+  box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.15);
+}
+
+:root[data-theme='light'] .ant-input-affix-wrapper input,
+:root[data-theme='light'] .ant-input-textarea textarea {
+  color: #1a1a1a !important;
+}
+
+:root[data-theme='light'] .ant-select-selection-item {
+  color: #1a1a1a !important;
+}
+
+/* 淺色主題 - Table 配色 */
+:root[data-theme='light'] .ant-table-thead > tr > th {
+  background: #fafafa !important;
+  color: #333333 !important;
+  border-bottom-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+:root[data-theme='light'] .ant-table-tbody > tr > td {
+  background: #ffffff !important;
+  color: #333333 !important;
+  border-bottom-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+:root[data-theme='light'] .ant-table-tbody > tr:hover > td {
+  background: #f5f5f5 !important;
+  color: #1a1a1a !important;
+}
+
+/* 淺色主題 - Card 配色 */
+:root[data-theme='light'] .ant-card {
+  background: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+:root[data-theme='light'] .ant-card-head {
+  background: #fafafa !important;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+  color: #1a1a1a !important;
+}
+
+:root[data-theme='light'] .ant-card-body {
+  color: #333333 !important;
+}
+
+:root[data-theme='light'] .ant-card-body strong,
+:root[data-theme='light'] .ant-card-body .ant-text-strong {
+  color: #1a1a1a !important;
+}
+
+:root[data-theme='light'] .ant-card-body .ant-space-item {
+  color: #333333 !important;
+}
+
+:root[data-theme='light'] .ant-card-body .ant-space-item strong {
+  color: #1a1a1a !important;
+}
+
+/* 淺色主題 - Collapse 配色 */
+:root[data-theme='light'] .ant-collapse {
+  background: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+:root[data-theme='light'] .ant-collapse-item {
+  border-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+:root[data-theme='light'] .ant-collapse-header {
+  background: #fafafa !important;
+  color: #1a1a1a !important;
+}
+
+:root[data-theme='light'] .ant-collapse-content {
+  background: #ffffff !important;
+  color: #333333 !important;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+:root[data-theme='light'] .ant-collapse-content-box {
+  color: #333333 !important;
+}
+
+/* 淺色主題 - 其他元件 */
+:root[data-theme='light'] .ant-descriptions-item-label {
+  color: #666666 !important;
+}
+
+:root[data-theme='light'] .ant-descriptions-item-content {
+  color: #1a1a1a !important;
+}
+
+:root[data-theme='light'] .ant-timeline-item-content {
+  color: #333333 !important;
+}
+
+:root[data-theme='light'] .ant-timeline-item-title {
+  color: #1a1a1a !important;
+}
+}
+
+:root[data-theme='light'] .ant-tabs-tab {
+  color: #666666 !important;
+}
+
+:root[data-theme='light'] .ant-tabs-tab-active {
+  color: #1a1a1a !important;
+}
+}
+
+:root[data-theme='light'] .ant-tabs-tab-active {
+  color: #1a1a1a;
+}
+
+:root[data-theme='light'] body {
+  /* Ant Design 会自动根据 CSS 变量调整样式 */
+}
+
+/* 淺色主題 - Modal、Message、Notification 等元件 */
+:root[data-theme='light'] .ant-modal-content {
+  background: #ffffff !important;
+  color: #1a1a1a !important;
+}
+
+:root[data-theme='light'] .ant-modal-header {
+  background: #fafafa !important;
+  color: #1a1a1a !important;
+  border-bottom-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+:root[data-theme='light'] .ant-modal-body {
+  color: #333333 !important;
+}
+
+:root[data-theme='light'] .ant-modal-footer {
+  background: #fafafa !important;
+  border-top-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+:root[data-theme='light'] .ant-empty-description {
+  color: #666666 !important;
+}
+
+:root[data-theme='light'] .ant-message-notice-content {
+  background: #ffffff !important;
+  color: #1a1a1a !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+:root[data-theme='light'] .ant-notification-notice {
+  background: #ffffff !important;
+  color: #1a1a1a !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+:root[data-theme='light'] .ant-select-item-option-content {
+  color: #1a1a1a !important;
+}
+
+:root[data-theme='light'] .ant-select-selection-item {
+  color: #1a1a1a !important;
+}
+
+:root[data-theme='light'] .ant-typography {
+  color: #333333 !important;
+}
+
+/* 修復 secondary 文本在淺色主題下的可見性 */
+:root[data-theme='light'] .ant-typography-secondary {
+  color: #666666 !important;
+  opacity: 1 !important;
+}
+
+:root[data-theme='light'] .ant-divider-inner-text {
+  color: #666666 !important;
+}
+
+/* 改进水印等半透明元素的可见性 */
+.ant-watermark {
+  opacity: 0.15;
+}
+
+/* 改进加载状态 */
+.ant-spin {
+  color: var(--accent-0) !important;
+}
+
+/* 防止 Ant Design 覆盖背景 */
+.ant-layout {
+  background: transparent !important;
+}
+
+.ant-layout-sider {
+  background: transparent !important;
+}
+
+/* 全局Ant Design组件颜色覆盖 */
+.ant-dropdown,
+.ant-dropdown-menu,
+.ant-dropdown-menu-item,
+.ant-menu,
+.ant-menu-item,
+.ant-select-dropdown,
+.ant-select-item,
+.ant-picker-dropdown,
+.ant-popover,
+.ant-tooltip {
+  background: rgba(15, 35, 43, 0.95) !important;
+  color: var(--ink-0) !important;
+}
+
+.ant-dropdown-menu-item:hover,
+.ant-menu-item:hover,
+.ant-select-item:hover {
+  background: rgba(20, 42, 51, 0.95) !important;
+  color: var(--ink-0) !important;
+}
+
+.ant-tooltip-inner {
+  background: rgba(11, 31, 36, 0.95) !important;
+  color: var(--ink-0) !important;
+}
+
+/* 淺色主題 dropdown/popover/tooltip 配色 */
+[data-theme="light"] .ant-dropdown,
+[data-theme="light"] .ant-dropdown-menu,
+[data-theme="light"] .ant-dropdown-menu-item,
+[data-theme="light"] .ant-menu,
+[data-theme="light"] .ant-menu-item,
+[data-theme="light"] .ant-select-dropdown,
+[data-theme="light"] .ant-select-item,
+[data-theme="light"] .ant-picker-dropdown,
+[data-theme="light"] .ant-popover,
+[data-theme="light"] .ant-tooltip {
+  background: rgba(250, 250, 250, 0.98) !important;
+  color: rgba(0, 0, 0, 0.85) !important;
+}
+
+[data-theme="light"] .ant-dropdown-menu-item:hover,
+[data-theme="light"] .ant-menu-item:hover,
+[data-theme="light"] .ant-select-item:hover {
+  background: rgba(245, 245, 245, 0.98) !important;
+  color: rgba(0, 0, 0, 0.85) !important;
+}
+
+[data-theme="light"] .ant-tooltip-inner {
+  background: rgba(240, 240, 240, 0.98) !important;
+  color: rgba(0, 0, 0, 0.85) !important;
+}
+
+/* ReactFlow 节点样式 */
+.reactflow__node {
+  background: rgba(15, 43, 51, 0.95) !important;
+  border: 2px solid var(--accent-0) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+}
+
+.reactflow__node {
+  background: rgba(15, 43, 51, 0.95) !important;
+  border: 2px solid var(--accent-0) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+  min-width: 140px !important;
+  min-height: 70px !important;
+  padding: 0 !important;
+}
+
+.reactflow__node-default {
+  background: rgba(15, 43, 51, 0.95) !important;
+  border: 2px solid var(--accent-0) !important;
+  border-radius: 12px !important;
+  padding: 0 !important;
+  color: transparent !important;
+  font-size: 0 !important;
+}
+
+.reactflow__node-label {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+.reactflow__node-inner {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+.reactflow__node-default div {
+  color: transparent !important;
+  font-size: 0 !important;
+  opacity: 0 !important;
+}
+
+.reactflow__handle {
+  background: var(--accent-0);
+  border: 2px solid var(--bg-1);
+  width: 12px;
+  height: 12px;
+}
+
+.reactflow__handle:hover {
+  background: var(--accent-1);
+}
+
+.reactflow__edge-path {
+  stroke: var(--accent-0);
+  stroke-width: 2;
+}
+
+.reactflow__edge-text {
+  background: rgba(15, 43, 51, 0.85);
+  color: var(--ink-0);
+  font-size: 12px;
+}
+
+.reactflow__attribution {
+  background: transparent;
+  color: var(--ink-2);
+}
+
+.reactflow__controls {
+  background: rgba(15, 43, 51, 0.85);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.reactflow__controls-button {
+  color: var(--ink-0);
+  border: 1px solid var(--border);
+  background: transparent;
+}
+
+.reactflow__controls-button:hover {
+  background: rgba(243, 155, 47, 0.15);
+  border-color: var(--accent-0);
+}
+
+.reactflow__minimap {
+  background: rgba(15, 43, 51, 0.5);
+  border: 1px solid var(--border);
+}
+
+.reactflow__background {
+  background-color: var(--bg-0);
+}
+
+.reactflow__background-pattern {
+  fill: var(--panel);
+  opacity: 0.1;
+}
+
+:root[data-theme='light'] .reactflow__node {
+  background: rgba(248, 248, 248, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  color: #1a1a1a;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+:root[data-theme='light'] .reactflow__node-default {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.98), rgba(250, 250, 250, 0.95));
+}
+
+:root[data-theme='light'] .reactflow__node-label {
+  color: #1a1a1a !important;
+}
+
+:root[data-theme='light'] .reactflow__edge-path {
+  stroke: #ff9800;
+}
+
+:root[data-theme='light'] .reactflow__edge-text {
+  background: rgba(248, 248, 248, 0.95);
+  color: #1a1a1a;
+}
+
