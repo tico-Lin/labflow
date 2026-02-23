@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "labflow"
-version = "0.3.0-dev"
-description = "LabFlow - 實驗室研究資料管理系統"
+version = "1.0.0"
+description = "LabFlow - Intelligent Laboratory Data Management System"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
@@ -24,12 +24,18 @@ dependencies = [
     "python-multipart==0.0.6",
     "passlib[bcrypt]==1.7.4",
     "redis>=4.5.0",
+    "requests>=2.32.0",
+    "cryptography>=42.0.0",
+    "PyYAML>=6.0.1",
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
     "mypy>=1.0.0",
     "black>=23.0.0",
     "isort>=5.0.0",
 ]
+
+[project.scripts]
+labflow-setup = "labflow.core.cli.setup:main"
 
 [project.optional-dependencies]
 dev = [
@@ -84,7 +90,7 @@ strict_equality = true
 plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
-testpaths = ["app"]
+testpaths = ["labflow"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
@@ -96,7 +102,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["app"]
+source = ["labflow"]
 omit = [
     "*/tests/*",
     "*/test_*.py",
