@@ -1,0 +1,180 @@
+# LabFlow GitHub Labels Configuration
+# Compatible with github-label-sync and the GitHub Actions workflow below.
+#
+# Categories:
+#   Type      – What kind of change is this?
+#   Priority  – How urgent is it?
+#   Status    – Where is it in the workflow?
+#   Component – Which layer/area of the code is affected?
+#   Module    – Which intelligent-analysis module is affected?
+#   Mode      – Which execution mode is relevant?
+
+# ── Type ──────────────────────────────────────────────────────────────────────
+- name: "bug"
+  color: "d73a4a"
+  description: "Something isn't working"
+
+- name: "enhancement"
+  color: "a2eeef"
+  description: "New feature or improvement to an existing feature"
+
+- name: "documentation"
+  color: "0075ca"
+  description: "Improvements or additions to documentation"
+
+- name: "question"
+  color: "d876e3"
+  description: "Further information is requested"
+
+- name: "refactor"
+  color: "e4e669"
+  description: "Code restructuring without behavior change"
+
+- name: "test"
+  color: "bfd4f2"
+  description: "Adding or updating tests"
+
+- name: "security"
+  color: "b60205"
+  description: "Security-related changes or vulnerabilities"
+
+- name: "performance"
+  color: "0e8a16"
+  description: "Improves runtime or memory performance"
+
+- name: "style"
+  color: "fef2c0"
+  description: "Code style / formatting – no logic change"
+
+- name: "breaking change"
+  color: "e11d48"
+  description: "Changes that may require user action or migration"
+
+# ── Priority ──────────────────────────────────────────────────────────────────
+- name: "priority: critical"
+  color: "b60205"
+  description: "Must be fixed immediately – blocks usage"
+
+- name: "priority: high"
+  color: "e4612f"
+  description: "Should be addressed in the next release"
+
+- name: "priority: medium"
+  color: "fbca04"
+  description: "Important but not blocking"
+
+- name: "priority: low"
+  color: "0e8a16"
+  description: "Nice to have – address when time permits"
+
+# ── Status ────────────────────────────────────────────────────────────────────
+- name: "status: in-progress"
+  color: "1d76db"
+  description: "Actively being worked on"
+
+- name: "status: needs-review"
+  color: "0075ca"
+  description: "Ready for review / feedback"
+
+- name: "status: blocked"
+  color: "e4e669"
+  description: "Blocked by another issue or external dependency"
+
+- name: "status: needs-info"
+  color: "d876e3"
+  description: "Waiting for more information from the reporter"
+
+- name: "status: duplicate"
+  color: "cfd3d7"
+  description: "This issue or PR already exists"
+
+- name: "status: wont-fix"
+  color: "ffffff"
+  description: "This will not be worked on"
+
+- name: "status: invalid"
+  color: "e4e4e4"
+  description: "This doesn't seem right"
+
+- name: "good first issue"
+  color: "7057ff"
+  description: "Good for newcomers"
+
+- name: "help wanted"
+  color: "008672"
+  description: "Extra attention is needed"
+
+# ── Component ─────────────────────────────────────────────────────────────────
+- name: "component: backend"
+  color: "c5def5"
+  description: "Python / FastAPI backend"
+
+- name: "component: frontend"
+  color: "bfd4f2"
+  description: "React frontend"
+
+- name: "component: desktop"
+  color: "d4c5f9"
+  description: "Electron desktop application"
+
+- name: "component: database"
+  color: "f9d0c4"
+  description: "SQLAlchemy models, Alembic migrations, queries"
+
+- name: "component: auth"
+  color: "fef2c0"
+  description: "JWT authentication and RBAC access control"
+
+- name: "component: api"
+  color: "e1f0e8"
+  description: "REST API endpoints and schemas"
+
+- name: "component: docker"
+  color: "cfd3d7"
+  description: "Docker / docker-compose / container configuration"
+
+- name: "component: ci-cd"
+  color: "0075ca"
+  description: "GitHub Actions, CI pipelines, automated workflows"
+
+- name: "component: i18n"
+  color: "a2eeef"
+  description: "Internationalization – Chinese / English support"
+
+# ── Module (intelligent-analysis features) ────────────────────────────────────
+- name: "module: file-manager"
+  color: "c5def5"
+  description: "File upload, deduplication (SHA-256), download, delete"
+
+- name: "module: tagging"
+  color: "bfd4f2"
+  description: "Tag creation, many-to-many associations, tag recommender"
+
+- name: "module: reasoning-engine"
+  color: "d4c5f9"
+  description: "DAG-based reasoning chain engine and visual editor"
+
+- name: "module: ai-intelligence"
+  color: "f9d0c4"
+  description: "File identifier, naming manager, conclusion generator"
+
+- name: "module: cloud-backup"
+  color: "fef2c0"
+  description: "Encrypted backup to Google Drive / OneDrive / NAS"
+
+- name: "module: collaboration"
+  color: "e1f0e8"
+  description: "Token system, conflict resolution, audit logs"
+
+# ── Execution Mode ────────────────────────────────────────────────────────────
+- name: "mode: offline"
+  color: "cfd3d7"
+  description: "Affects Mode 1 – Local Fully Offline"
+
+- name: "mode: connected"
+  color: "0e8a16"
+  description: "Affects Modes 2 / 3 – Local Connected (Privacy / Full)"
+
+- name: "mode: collaborative"
+  color: "1d76db"
+  description: "Affects Modes 4A / 4B / 5 – Collaboration modes"
