@@ -1,0 +1,61 @@
+name: Auto-Merge Ready PRs
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches: [main]
+
+permissions:
+  pull-requests: write
+  contents: write
+
+jobs:
+  check-pr-ready:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+
+            // Check if PR is from branch protection bypass
+            if (pr.title.startsWith('fix:') || pr.title.startsWith('docs:') || pr.title.startsWith('chore:')) {
+              console.log('✅ PR ready for auto-merge');
+
+              // Add auto-merge label
+              github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                labels: ['auto-merge']
+              });
+
+              console.log('Added auto-merge label');
+            }
+
+  auto-merge:
+    runs-on: ubuntu-latest
+    needs: check-pr-ready
+    if: contains(github.event.pull_request.labels.*.name, 'auto-merge')
+    steps:
+      - name: Auto-merge PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+
+            if (pr.mergeable) {
+              github.rest.pulls.merge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                merge_method: 'squash',
+                commit_title: pr.title,
+                commit_message: pr.body
+              });
+
+              console.log('✅ PR auto-merged successfully');
+            } else {
+              console.log('⚠️ PR not ready for merge');
+            }
