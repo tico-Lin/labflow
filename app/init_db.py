@@ -59,7 +59,7 @@ def create_default_admin():
         if existing_user:
             logger.info("✓ 管理員帳號已存在，跳過建立")
             return True
-        
+
         # 建立預設管理員
         admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
         admin = User(
@@ -73,7 +73,8 @@ def create_default_admin():
         db.commit()
         logger.info(f"✓ 預設管理員帳號建立成功")
         logger.info(f"  帳號: admin@labflow.local")
-        logger.info(f"  密碼: {admin_password} (建議立即修改)")
+        logger.info(f"  密碼: {'*' * len(admin_password)} (已隱藏，建議立即修改)")
+        logger.debug(f"初始密碼[僅調試]: {admin_password}")
         return True
     except Exception as e:
         logger.error(f"✗ 建立管理員失敗: {e}")
@@ -86,7 +87,7 @@ def create_default_admin():
 def create_default_tags():
     """建立預設標籤分類"""
     from .models import Tag
-    
+
     db = SessionLocal()
     try:
         default_tags = [
@@ -95,19 +96,19 @@ def create_default_tags():
             "alpha", "beta", "gamma",
             "cycle-test", "impedance", "CV", "chronoamperometry"
         ]
-        
+
         existing_count = db.query(Tag).count()
         if existing_count > 0:
             logger.info(f"✓ 標籤已存在 ({existing_count} 個)，跳過建立")
             return True
-        
+
         for tag_name in default_tags:
             try:
                 tag = Tag(name=tag_name)
                 db.add(tag)
             except ValueError as e:
                 logger.warning(f"  跳過無效標籤 '{tag_name}': {e}")
-        
+
         db.commit()
         logger.info(f"✓ 預設標籤建立完成 ({len(default_tags)} 個)")
         return True
@@ -137,26 +138,26 @@ def main():
     logger.info("=" * 60)
     logger.info("LabFlow 資料庫初始化")
     logger.info("=" * 60)
-    
+
     # 1. 驗證資料庫連線
     if not verify_database():
         sys.exit(1)
-    
+
     # 2. 檢查現有表
     tables_exist = check_tables_exist()
-    
+
     # 3. 建立資料表
     if not create_all_tables():
         sys.exit(1)
-    
+
     # 4. 建立預設管理員（首次初始化時）
     if not tables_exist or os.getenv("FORCE_INIT_ADMIN") == "true":
         create_default_admin()
-    
+
     # 5. 建立預設標籤（首次初始化時）
     if not tables_exist or os.getenv("FORCE_INIT_TAGS") == "true":
         create_default_tags()
-    
+
     logger.info("=" * 60)
     logger.info("✓ 資料庫初始化完成！")
     logger.info("=" * 60)
