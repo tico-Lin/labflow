@@ -199,7 +199,7 @@ We welcome contributions! Please fork, create a feature branch, commit changes, 
 
 - **Documentation**: [docs/README.md](docs/README.md)
 - **Issues**: GitHub Issues
-- **Email**: contact@labflow.local
+- **Email**: s1120427@pu.edu.tw
 
 ---
 
@@ -385,7 +385,7 @@ labflow/
 
 - **文檔**: [docs/README.md](docs/README.md)
 - **問題**: GitHub Issues
-- **郵件**: contact@labflow.local
+- **郵件**: s1120427@pu.edu.tw
 
 ---
 
