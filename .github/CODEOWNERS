@@ -1,0 +1,29 @@
+# GitHub Code Owners
+# This file defines which users/teams are responsible for reviewing code changes
+
+# Root directory and main configurations
+* @tico-Lin
+
+# Application code
+/app/ @tico-Lin
+/app/database.py @tico-Lin
+/app/file_parser.py @tico-Lin
+/app/cache.py @tico-Lin
+/app/annotation.py @tico-Lin
+
+# Frontend
+/frontend/ @tico-Lin
+/frontend/src/ @tico-Lin
+
+# Tests
+/tests/ @tico-Lin
+
+# Configuration and docs
+*.md @tico-Lin
+.github/ @tico-Lin
+docker* @tico-Lin
+requirements.txt @tico-Lin
+
+# Security-related files
+SECURITY.md @tico-Lin
+.env* @tico-Lin
