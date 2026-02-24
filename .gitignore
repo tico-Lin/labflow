@@ -60,10 +60,67 @@ data/managed/
 data/uploads/
 data/temp/
 
-# Environment variables
+# Environment variables and secrets
 .env
 .env.local
 .env.*.local
+.env.prod
+.env.production
+.env.dev
+.env.development
+.env.staging
+.env.test
+
+# 密鑰和敏感文件 (Keys and credentials)
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+secrets/
+.secrets/
+credentials.json
+config/secrets*
+config/private*
+**/.aws/credentials
+**/.aws/config
+**/.gcp/
+**/.azure/
+**/.ssh/
+
+# API Keys and Tokens
+**/apikeys.*
+**/api_keys.*
+**/tokens.*
+**/credentials.*
+*_secret.json
+*_private.*
+
+# Database passwords
+**/db_password.*
+**/database.yml
+
+# Testing sensitive data
+test_data_sensitive/
+test_results_sensitive/
+debug_sensitive/
+
+# IDE sensitive settings (individual)
+.vscode/settings.json
+.vscode/launch.json
+.vscode/extensions.json.local
+.idea/runConfigurations/
+.idea/workspace.xml
+.idea/tasks.xml
+
+# macOS sensitive files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Sensitive comments/documentation
+*TODO_SENSITIVE*
+*FIXME_SECRETS*
 
 # OS
 Thumbs.db
@@ -98,3 +155,6 @@ build/
 .cache/
 temp/
 *.orig
+
+# Sample data and test files
+sample/

@@ -43,12 +43,14 @@ What does this PR do? Why was it needed?
 ## 🧪 Testing
 
 ### Tests Added/Modified
+
 - [ ] Unit tests
 - [ ] Integration tests
 - [ ] E2E tests
 - [ ] Manual testing
 
 ### Test Results
+
 ```
 Describe testing performed:
 - Test environment: [Local/CI/Docker]
@@ -57,6 +59,7 @@ Describe testing performed:
 ```
 
 ### How to Test Manually
+
 1. Step 1
 2. Step 2
 3. Expected result
@@ -68,9 +71,11 @@ Describe testing performed:
 <!-- Add screenshots for UI changes -->
 
 **Before:**
+
 <!-- Screenshot before changes -->
 
 **After:**
+
 <!-- Screenshot after changes -->
 
 ---
@@ -82,6 +87,7 @@ Describe testing performed:
 - [ ] N/A
 
 **If breaking**, outline migration steps:
+
 ```
 1. Step 1
 2. Step 2
@@ -115,6 +121,7 @@ Any special steps needed for deployment?
 - [ ] Build step changes
 
 **Details:**
+
 ```
 List any deployment requirements here
 ```
@@ -128,6 +135,7 @@ List any deployment requirements here
 - [ ] Possible performance impact
 
 **Metrics (if applicable):**
+
 ```
 Describe any measured performance changes
 ```
